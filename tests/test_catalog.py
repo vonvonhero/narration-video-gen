@@ -1606,7 +1606,8 @@ def test_passwordless_sudo_helper_is_guarded():
     text = script.read_text(encoding="utf-8")
     check(bool(script.stat().st_mode & 0o111), "sudo helper is executable")
     check("set -euo pipefail" in text, "sudo helper uses strict shell mode")
-    check("status|enable|disable" in text, "sudo helper exposes explicit actions")
+    check("  status|disable)" in text and "  enable)" in text,
+          "sudo helper exposes explicit actions")
     check("SUDO_USER" in text and "SUDO_UID" in text,
           "sudo helper identifies the invoking non-root account")
     check("unsupported user name" in text and "getent passwd" in text,
@@ -1617,8 +1618,22 @@ def test_passwordless_sudo_helper_is_guarded():
     check("/etc/sudoers.d/.narration-video-gen-passwordless.XXXXXX" in text
           and 'root_run ln "$system_tmp" "$dropin"' in text,
           "sudo helper installs with an ignored temporary file and no-clobber link")
-    check("root:root:440" in text and "cmp -s" in text and "test -L" in text,
+    check("root:root:440" in text and "render_legacy_dropin" in text
+          and 'render_dropin "$expires" "$variant"' in text and "test -L" in text,
           "sudo helper recognizes only the exact managed file")
+    check("max_seconds=$((12 * 3600))" in text and "invalid duration" in text,
+          "sudo helper bounds the length of a grant")
+    check("[ -t 0 ] && [ -t 2 ]" in text and "needs systemd" in text,
+          "sudo helper is enabled by a person and only with a working expiry")
+    check("OnCalendar=" in text and "WantedBy=sysinit.target" in text
+          and "ExecStart=/usr/bin/rm -f -- $dropin" in text,
+          "sudo helper removes the grant at the deadline and at the next boot")
+    check(text.count("'DefaultDependencies=no'") == 2,
+          "sudo helper keeps the boot-time removal free of an ordering cycle")
+    check("NOTAFTER=" in text and "'^Sudo version '" in text,
+          "sudo helper lets the original sudo enforce the deadline itself")
+    check("systemctl restart" in text and "is-active --quiet" in text,
+          "sudo helper schedules the removal before granting anything")
     check(text.count("/usr/sbin/visudo -cf") >= 2,
           "sudo helper validates the drop-in and complete sudoers policy")
     check('root_run test "$dropin" -ef "$system_tmp"' in text
@@ -1639,9 +1654,13 @@ def test_passwordless_sudo_helper_is_guarded():
     check(completed.returncode == 0, "sudo helper status is read-only and usable")
     manuals = (ROOT / "docs" / "manual" / "linux.md").read_text(encoding="utf-8")
     manuals += (ROOT / "docs" / "manual" / "linux_en.md").read_text(encoding="utf-8")
-    check("passwordless-sudo.sh enable" in manuals
+    check("passwordless-sudo.sh enable --for" in manuals
           and "passwordless-sudo.sh disable" in manuals,
           "Linux manuals document enabling and disabling the helper")
+    agents = (ROOT / "AGENTS.md").read_text(encoding="utf-8")
+    check("passwordless-sudo.sh enable --for" in agents
+          and "Do not run `enable` yourself" in agents,
+          "AGENTS.md leaves enabling passwordless sudo to the user")
 
 
 def test_stage_workflows_are_well_formed(catalog):

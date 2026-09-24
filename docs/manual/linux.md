@@ -98,14 +98,18 @@ scripts/setup-linux.sh --remove-swap --yes
 <details>
 <summary>sudoのパスワード入力を一時的に省略する</summary>
 
-個人用の開発マシンで、必要な間だけ利用してください。有効にするとパスワードなしでroot権限を使えるようになり、自動では失効しません。
+AIエージェントにセットアップを任せる間、sudoのパスワード入力で止まらないようにするための機能です。個人用の開発マシンで、必要な間だけ利用してください。有効な間は、あなたのユーザーで動くものすべてがパスワードなしでroot権限を使えます。
+
+有効化は、あなた自身が端末で実行してください（パスワード入力が1回あります）。期限が来るか、次に起動すると、systemdのタイマーが自動で許可を削除します。既定の期限は2時間で、`--for`で最長12時間まで指定できます。有効中にもう一度`enable`を実行すると、その時点から期間をやり直します。
 
 ```bash
 scripts/passwordless-sudo.sh status
-scripts/passwordless-sudo.sh enable
-# 必要な作業が終わったら戻す
+scripts/passwordless-sudo.sh enable --for 2h
+# 期限前に作業が終わったら戻す
 scripts/passwordless-sudo.sh disable
 ```
+
+ドライバー導入後の再起動で許可は消えます。再起動後も続けて任せる場合は、もう一度`enable`を実行してください。systemdが動いていない環境では有効化できません。Ubuntu 24.04の標準sudoでは、ルール自体にも期限（`NOTAFTER`）を書き込むため、タイマーが動かなくても期限後は使えません。以前のバージョンで有効にした無期限の許可は、`status`で確認でき、`enable`で期限付きに置き換えるか、`disable`で削除できます。
 
 </details>
 

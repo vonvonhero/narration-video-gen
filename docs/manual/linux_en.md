@@ -98,14 +98,18 @@ Individual actions are available through `--setup`, `--install-driver`, and `--t
 <details>
 <summary>Temporarily skip sudo password prompts</summary>
 
-Use this only on a personal development machine and only while needed. Enabling it grants root access without a password and does not expire automatically.
+This lets an AI agent run the setup without stopping at sudo password prompts. Use it only on a personal development machine and only while needed. While it is enabled, anything running as your user has root access without a password.
+
+Enable it yourself in a terminal (you enter your password once). A systemd timer removes the grant when the period ends or at the next boot, whichever comes first. The default period is 2 hours; `--for` accepts up to 12 hours. Running `enable` again while enabled starts a new period.
 
 ```bash
 scripts/passwordless-sudo.sh status
-scripts/passwordless-sudo.sh enable
-# Restore password prompts when finished
+scripts/passwordless-sudo.sh enable --for 2h
+# Restore password prompts if you finish early
 scripts/passwordless-sudo.sh disable
 ```
+
+The reboot after installing the driver ends the grant; run `enable` again if the agent should continue afterwards. It cannot be enabled where systemd is not running. With the standard sudo of Ubuntu 24.04 the rule itself also carries the deadline (`NOTAFTER`), so it stops working at the deadline even if the timer does not run. A grant without expiry enabled by an earlier version shows up in `status`; `enable` replaces it with a timed one and `disable` removes it.
 
 </details>
 

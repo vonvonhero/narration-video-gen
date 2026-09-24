@@ -81,6 +81,18 @@ after the user agrees: `--setup` (Docker and NVIDIA Container Toolkit),
 `--install-driver`, `--test-gpu`, each with `--yes`. For narration only, Docker
 is enough; no GPU setup is needed.
 
+If sudo password prompts would stop you, the user can grant a time-limited
+window without them:
+
+1. Ask the user to run `scripts/passwordless-sudo.sh enable --for 2h` in their
+   own terminal. Do not run `enable` yourself; it refuses without a terminal.
+2. Confirm with `scripts/passwordless-sudo.sh status`. It still does not replace
+   asking before each host change (ground rule 1).
+3. You cannot reboot or re-login for the user. The grant ends at the next boot,
+   so after a reboot ask the user to run `enable` again if more steps remain.
+4. When the setup is done, run `scripts/passwordless-sudo.sh disable`. The grant
+   also expires on its own at the end of the period.
+
 ## Make a video
 
 Commands that ask questions only do so on a terminal. Without a TTY, and with

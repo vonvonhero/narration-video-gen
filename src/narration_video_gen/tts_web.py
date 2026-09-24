@@ -7,6 +7,7 @@ and WAV files.
 
 from __future__ import annotations
 
+import codecs
 import hashlib
 import hmac
 import json
@@ -16,6 +17,7 @@ import re
 import secrets
 import shutil
 import socket
+import stat
 import subprocess
 import sys
 import threading
@@ -29,6 +31,7 @@ from pathlib import Path
 
 from . import narration
 from . import tts_service
+from .compat import load_yaml_file
 
 
 RECENT_JOB_LIMIT = 8
@@ -47,6 +50,9 @@ AUTH_SESSION_SECONDS = 12 * 3600
 AUTH_FAILURE_LIMIT = 5
 AUTH_FAILURE_WINDOW_SECONDS = 60
 MIN_PASSWORD_LENGTH = 10
+# Must match MODEL_ROOT in scripts/tts-backend.sh.
+TTS_MODEL_DIR = Path("models") / "irodori-tts-v4.1-small"
+TTS_MODEL_LOCK = Path("manifests") / "tts-models.lock.yaml"
 
 
 def auth_path(root):
@@ -288,6 +294,7 @@ code{background:var(--surface-2);border:1px solid var(--border);border-radius:6p
   border-right-color:transparent;border-radius:50%;animation:sp .7s linear infinite;
   vertical-align:-2px;margin-right:7px}
 @keyframes sp{to{transform:rotate(360deg)}}
+.notice progress{display:block;width:100%;height:8px;margin-top:9px;accent-color:var(--accent)}
 @media (prefers-reduced-motion:reduce){.spin{animation:none}}
 @media (max-width:560px){.wrap{padding:16px 12px 72px}.card{padding:15px}.tools{gap:6px}}
 </style></head>
@@ -403,8 +410,9 @@ function syncControls(){document.querySelectorAll('button,input,select,textarea'
   else if(disabledBeforeWork.has(el)){el.disabled=disabledBeforeWork.get(el);disabledBeforeWork.delete(el)}});
   syncAdopt()}
 function setBusy(on){busyCount=Math.max(0,busyCount+(on?1:-1));syncControls()}
+const bar=p=>typeof p==='number'&&isFinite(p)?'<progress max="1" value="'+Math.min(1,Math.max(0,p))+'"></progress>':'';
 async function work(label,fn){setBusy(true);const el=$('setup-action');
-  try{return await fn(m=>{if(label!==null)el.innerHTML='<p class="notice"><span class="spin"></span>'+esc(m||label)+'</p>'})}
+  try{return await fn((m,p)=>{if(label!==null)el.innerHTML='<p class="notice"><span class="spin"></span>'+esc(m||label)+bar(p)+'</p>'})}
   finally{const waiting=$('working');if(waiting)waiting.remove();
     if($('a-status'))$('a-status').innerHTML='';
     setBusy(false);if(label!==null)renderSetup()}}
@@ -428,7 +436,7 @@ function renderSetup(){
 }
 async function refresh(){config=await api('/api/config');renderSetup();renderCharacters()}
 async function poll(id,onMessage){for(;;){const j=await api('/api/tasks/'+id);
-  if(onMessage&&j.message)onMessage(j.message);
+  if(onMessage&&j.message)onMessage(j.message,j.progress);
   if(j.status==='failed')throw Error(j.error||'処理に失敗しました');
   if(j.status==='completed')return j.result;
   await new Promise(r=>setTimeout(r,800))}}
@@ -941,7 +949,9 @@ async function openJob(id){try{closeMaker();await work(null,async()=>{
 renderCharacters();$('caption').value=defaults[character].caption;
 $('script').addEventListener('input',schedulePreview);
 $('generate').onclick=()=>generate().catch(e=>{flash('err',e.message);const el=$('working');if(el)el.remove()});
-refresh().catch(e=>flash('err',e.message));
+// A reload during the first download follows the task that is still running.
+refresh().then(()=>{if(config.preparing&&!config.model_prepared)
+  return doPrepare()}).catch(e=>flash('err',e.message));
 loadRecent();
 if(location.hash==='#new')openMaker();
 else if(location.hash.startsWith('#char=')){
@@ -1073,7 +1083,8 @@ class TaskStore:
 
         def run():
             try:
-                result = function(lambda message: self.update(task_id, message))
+                result = function(lambda message, progress=None:
+                                  self.update(task_id, message, progress))
                 with self.lock:
                     self.values[task_id] = {
                         "status": "completed", "message": "完了", "result": result}
@@ -1088,14 +1099,142 @@ class TaskStore:
         threading.Thread(target=run, daemon=True).start()
         return task_id
 
-    def update(self, task_id, message):
+    def update(self, task_id, message, progress=None):
+        """Replace the status line; progress is a 0..1 fraction when known."""
         with self.lock:
-            if task_id in self.values:
-                self.values[task_id]["message"] = message
+            value = self.values.get(task_id)
+            if value is not None:
+                value["message"] = message
+                if progress is None:
+                    value.pop("progress", None)
+                else:
+                    value["progress"] = min(1.0, max(0.0, float(progress)))
+
+    def running(self, key):
+        with self.lock:
+            task_id = self.active.get(key)
+            return bool(task_id) and \
+                self.values.get(task_id, {}).get("status") == "running"
 
     def get(self, task_id):
         with self.lock:
             return dict(self.values.get(task_id) or {})
+
+
+def _duration(seconds):
+    seconds = max(0, int(seconds))
+    if seconds < 60:
+        return "%d秒" % seconds
+    if seconds < 3600:
+        return "%d分%02d秒" % divmod(seconds, 60)
+    return "%d時間%02d分" % (seconds // 3600, seconds % 3600 // 60)
+
+
+def _remaining(seconds):
+    if seconds < 60:
+        return "1分未満"
+    minutes = int(seconds + 59) // 60
+    if minutes < 60:
+        return "約%d分" % minutes
+    return "約%d時間%02d分" % divmod(minutes, 60)
+
+
+def model_download_bytes(root):
+    """Total size of the pinned TTS downloads, or None if the lock is unreadable."""
+    try:
+        lock = load_yaml_file(Path(root) / TTS_MODEL_LOCK)
+        return sum(int(item["bytes"]) for item in lock["models"]) or None
+    except (OSError, ValueError, KeyError, TypeError):
+        return None
+
+
+def downloaded_bytes(directory):
+    """Bytes written so far under the model folder, partial downloads included."""
+    total = 0
+    for base, directories, files in os.walk(directory):
+        # The Xet chunk cache is a second copy of what is being assembled.
+        if Path(base).name == "huggingface":
+            directories[:] = [name for name in directories if name != "xet"]
+        for name in files:
+            try:
+                info = os.lstat(os.path.join(base, name))
+            except OSError:
+                continue
+            if stat.S_ISREG(info.st_mode):
+                # A preallocated sparse file only counts what has been written.
+                total += min(info.st_size, info.st_blocks * 512)
+    return total
+
+
+class PrepareProgress:
+    """Turn `tts-backend.sh prepare` output and the model folder into status.
+
+    The script marks its phases with `nvg-phase: <name>` lines. The image build
+    only reports its step. The download is measured on disk instead of parsed
+    from the downloader's progress bars, whose format belongs to the library.
+    """
+
+    PHASE = re.compile(r"^nvg-phase: (\w+)\s*$")
+    BUILD_STEP = re.compile(r"^#\d+ \[(?:\S+ )?(\d+)/(\d+)\]|^Step (\d+)/(\d+) ")
+    RATE_WINDOW_SECONDS = 10
+
+    def __init__(self, root, update, clock=time.monotonic):
+        self.model_dir = Path(root) / TTS_MODEL_DIR
+        self.total = model_download_bytes(root)
+        self.update = update
+        self.clock = clock
+        self.started = clock()
+        self.phase = "build"
+        self.step = None
+        self.pending = ""
+        self.samples = []
+
+    def __call__(self, output):
+        lines = (self.pending + output).split("\n")
+        # Progress bars redraw with carriage returns and may never end a line.
+        self.pending = lines.pop()[-65536:]
+        for line in lines:
+            line = line.rsplit("\r", 1)[-1]
+            phase = self.PHASE.match(line)
+            if phase:
+                self.phase = phase.group(1)
+                continue
+            step = self.BUILD_STEP.match(line) if self.phase == "build" else None
+            if step:
+                self.step = tuple(int(item) for item in step.groups() if item)
+        now = self.clock()
+        elapsed = "経過 " + _duration(now - self.started)
+        if self.phase == "download":
+            self.update(*self._download(now, elapsed))
+        elif self.phase == "verify":
+            self.update("ダウンロードしたモデルを検証中（%s）" % elapsed)
+        elif self.step:
+            self.update("音声エンジンの実行環境を作成中（手順 %d/%d、%s）。"
+                        "初回は数分〜数十分かかります" % (self.step + (elapsed,)))
+        else:
+            self.update("音声エンジンの実行環境を確認中（%s）" % elapsed)
+
+    def _download(self, now, elapsed):
+        done = downloaded_bytes(self.model_dir)
+        self.samples = [sample for sample in self.samples
+                        if now - sample[0] <= self.RATE_WINDOW_SECONDS]
+        self.samples.append((now, done))
+        first_time, first_bytes = self.samples[0]
+        rate = ((done - first_bytes) / (now - first_time)
+                if now > first_time else 0.0)
+        amount = "%.2f GB" % (done / 1e9)
+        fraction = None
+        if self.total:
+            # Only the script's own completion says the download is complete.
+            fraction = min(done / self.total, 0.99)
+            amount += " / %.2f GB（%d%%）" % (self.total / 1e9, fraction * 100)
+        details = [amount]
+        if rate > 0:
+            details.append("%.1f MB/s" % (rate / 1e6))
+            if self.total:
+                details.append("残り" + _remaining(max(0, self.total - done) / rate))
+        details.append(elapsed)
+        return "モデルをダウンロード中: " + "、".join(details), fraction
 
 
 def video_input_sets(root):
@@ -1452,6 +1591,7 @@ class NarrationWebApp:
                             app.root, include_drafts=True)
                         self._json(200, {
                             "model_prepared": tts_service.models_prepared(app.root),
+                            "preparing": app.tasks.running("prepare-models"),
                             "backend": tts_service.backend_health(app.backend),
                             "characters": tts_service.list_characters(app.root),
                             "pending_characters": {
@@ -1719,8 +1859,11 @@ class NarrationWebApp:
 
         return Handler
 
-    def _script(self, *arguments):
-        """Run the backend helper, reporting its message instead of a traceback."""
+    def _script(self, *arguments, watch=None):
+        """Run the backend helper, reporting its message instead of a traceback.
+
+        While it runs, `watch` receives each new piece of its output.
+        """
         command = [str(self.root / "scripts" / "tts-backend.sh")]
         command.extend(arguments)
         action = re.sub(r"[^a-zA-Z0-9_-]", "_", arguments[0])
@@ -1731,8 +1874,26 @@ class NarrationWebApp:
                 log.write("\n[%s] %s\n" % (
                     time.strftime("%Y-%m-%d %H:%M:%S%z"), " ".join(arguments)))
                 log.flush()
-                subprocess.run(command, cwd=str(self.root), check=True,
-                               stdout=log, stderr=subprocess.STDOUT, text=True)
+                with log_path.open("rb") as reader:
+                    reader.seek(0, os.SEEK_END)
+                    decoder = codecs.getincrementaldecoder("utf-8")("replace")
+                    process = subprocess.Popen(command, cwd=str(self.root),
+                                               stdout=log, stderr=subprocess.STDOUT)
+                    returncode = None
+                    while returncode is None:
+                        try:
+                            returncode = process.wait(timeout=1)
+                        except subprocess.TimeoutExpired:
+                            pass
+                        if watch is None:
+                            continue
+                        try:
+                            watch(decoder.decode(reader.read()))
+                        except Exception:  # noqa: BLE001 - status must not stop the helper
+                            traceback.print_exc()
+                            watch = None
+                if returncode:
+                    raise subprocess.CalledProcessError(returncode, command)
                 log.write("[%s] completed\n" %
                           time.strftime("%Y-%m-%d %H:%M:%S%z"))
         except FileNotFoundError as exc:
@@ -1753,8 +1914,9 @@ class NarrationWebApp:
                     log_path.relative_to(self.root))) from exc
 
     def _prepare(self, update):
-        update("モデルをダウンロード中（約3.7GB）")
-        self._script("prepare", "--device", "auto")
+        update("モデルのダウンロードを準備中（約3.7GB）")
+        self._script("prepare", "--device", "auto",
+                     watch=PrepareProgress(self.root, update))
         return tts_service.record_models_prepared(self.root)
 
     def _backend_start(self, device, update):

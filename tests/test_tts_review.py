@@ -333,23 +333,129 @@ class NarrationReviewTests(unittest.TestCase):
             time.sleep(0.01)
         self.assertEqual(tasks.get(first).get("status"), "completed")
 
+    def fake_backend_script(self, root, body):
+        script = root / "scripts" / "tts-backend.sh"
+        script.parent.mkdir(parents=True, exist_ok=True)
+        script.write_text("#!/usr/bin/env bash\n" + body, encoding="utf-8")
+        script.chmod(0o755)
+
     def test_backend_script_output_is_persisted(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
-            (root / "scripts").mkdir()
+            self.fake_backend_script(
+                root, "echo 'download failed: network unavailable' >&2\nexit 1\n")
             app = tts_web.NarrationWebApp(root)
-
-            def fail(command, **kwargs):
-                kwargs["stdout"].write("download failed: network unavailable\n")
-                kwargs["stdout"].flush()
-                raise subprocess.CalledProcessError(1, command)
-
-            with patch.object(subprocess, "run", side_effect=fail), \
-                    self.assertRaises(tts_service.TTSError) as raised:
+            with self.assertRaises(tts_service.TTSError) as raised:
                 app._script("prepare", "--device", "auto")
             log_path = root / "outputs" / "tts" / "prepare.log"
             self.assertIn("network unavailable", log_path.read_text(encoding="utf-8"))
             self.assertIn("outputs/tts/prepare.log", str(raised.exception))
+
+    def test_backend_script_output_is_streamed_to_watch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.fake_backend_script(
+                root, "echo 'nvg-phase: build'\nsleep 1.3\necho 'nvg-phase: verify'\n")
+            app = tts_web.NarrationWebApp(root)
+            seen = []
+            app._script("prepare", "--device", "auto", watch=seen.append)
+            self.assertGreaterEqual(len(seen), 2)
+            self.assertEqual("".join(seen), "nvg-phase: build\nnvg-phase: verify\n")
+            log = (root / "outputs" / "tts" / "prepare.log").read_text(encoding="utf-8")
+            self.assertIn("nvg-phase: verify", log)
+            self.assertIn("completed", log)
+
+    def test_broken_watch_does_not_stop_the_script(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            self.fake_backend_script(root, "sleep 1.2\necho done\n")
+            app = tts_web.NarrationWebApp(root)
+
+            def broken(_output):
+                raise RuntimeError("status failed")
+
+            with contextlib.redirect_stderr(io.StringIO()):
+                app._script("prepare", "--device", "auto", watch=broken)
+            log = (root / "outputs" / "tts" / "prepare.log").read_text(encoding="utf-8")
+            self.assertIn("done", log)
+
+    def test_prepare_progress_reports_each_phase(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "manifests").mkdir()
+            (root / "manifests" / "tts-models.lock.yaml").write_text(
+                "schema_version: 1\nmodels:\n"
+                "  - id: a\n    bytes: 3000000\n"
+                "  - id: b\n    bytes: 1000000\n", encoding="utf-8")
+            now = [100.0]
+            updates = []
+            progress = tts_web.PrepareProgress(
+                root, lambda message, fraction=None: updates.append((message, fraction)),
+                clock=lambda: now[0])
+
+            progress("nvg-phase: build\n#1 [internal] load build definition\n")
+            self.assertIn("確認中", updates[-1][0])
+            now[0] = 175.0
+            progress("#7 [3/6] RUN git init .\n#8 [4/")
+            self.assertIn("手順 3/6", updates[-1][0])
+            self.assertIn("1分15秒", updates[-1][0])
+            self.assertIsNone(updates[-1][1])
+            progress("6] RUN uv sync\n")
+            self.assertIn("手順 4/6", updates[-1][0])
+
+            model_dir = root / tts_web.TTS_MODEL_DIR
+            partial = model_dir / "checkpoint" / ".cache" / "model.safetensors.incomplete"
+            partial.parent.mkdir(parents=True)
+            partial.write_bytes(b"x" * 1000000)
+            xet = model_dir / "huggingface" / "xet" / "chunk"
+            xet.parent.mkdir(parents=True)
+            xet.write_bytes(b"x" * 1000000)
+            progress("nvg-phase: download\n")
+            message, fraction = updates[-1]
+            self.assertIn("モデルをダウンロード中", message)
+            self.assertIn("（25%）", message)
+            self.assertAlmostEqual(fraction, 0.25, places=2)
+            now[0] = 177.0
+            partial.write_bytes(b"x" * 3000000)
+            progress("\r 50%|####")
+            message, fraction = updates[-1]
+            self.assertAlmostEqual(fraction, 0.75, places=2)
+            self.assertIn("1.0 MB/s", message)
+            self.assertIn("残り1分未満", message)
+
+            (model_dir / "codec").mkdir()
+            (model_dir / "codec" / "weights.pth").write_bytes(b"x" * 2000000)
+            progress("")
+            self.assertEqual(updates[-1][1], 0.99)
+
+            progress("\nnvg-phase: verify\n")
+            self.assertIn("検証中", updates[-1][0])
+            self.assertIsNone(updates[-1][1])
+
+    def test_task_progress_is_reported_only_when_known(self):
+        tasks = tts_web.TaskStore()
+        release = threading.Event()
+
+        def work(update):
+            update("downloading", 0.5)
+            release.wait(3)
+            return {}
+
+        task_id = tasks.start("work", work, key="prepare-models")
+        for _attempt in range(100):
+            if tasks.get(task_id).get("progress") == 0.5:
+                break
+            time.sleep(0.01)
+        self.assertEqual(tasks.get(task_id)["progress"], 0.5)
+        self.assertTrue(tasks.running("prepare-models"))
+        tasks.update(task_id, "verifying")
+        self.assertNotIn("progress", tasks.get(task_id))
+        release.set()
+        for _attempt in range(100):
+            if not tasks.running("prepare-models"):
+                break
+            time.sleep(0.01)
+        self.assertFalse(tasks.running("prepare-models"))
 
     def test_unknown_error_keeps_a_location_in_the_log(self):
         output = io.StringIO()
@@ -576,6 +682,12 @@ const w=dom.window, $=id=>w.document.getElementById(id);
   assert($('m-create').closest('.maker').hidden,'creation form hides after a character is made');
   w.makerStatus('err','retry failed');
   assert.equal($('m-preview-status').textContent,'retry failed','audition errors remain visible');
+  await w.eval(`work('準備中',async say=>{
+    say('モデルをダウンロード中: 25%',0.25);
+    const bar=$('setup-action').querySelector('progress');
+    if(!bar||bar.value!==0.25)throw Error('download progress bar is missing');
+    say('ダウンロードしたモデルを検証中');
+    if($('setup-action').querySelector('progress'))throw Error('stale progress bar')})`);
   const previousCalls=healthCalls;
   await w.ensureReady(()=>{});
   assert(healthCalls>previousCalls,'engine health is refreshed before reuse');

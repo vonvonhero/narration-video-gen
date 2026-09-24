@@ -13,7 +13,7 @@ Create narration for a video from a script with Irodori-TTS v4.1 Small.
 This opens the narration page. The Web UI labels are in Japanese.
 
 1. Choose Aoi, Sakura, or a character you created, and enter your script.
-2. Press **音声を作る** (Create audio). First use downloads the models, about 3.7 GB.
+2. Press **音声を作る** (Create audio). First use downloads the models, about 3.7 GB. The page shows the image build step, the amount downloaded, the speed and an estimated time left, and returns to that display if you reload it.
 3. Listen to the finished audio and each part, then tick the confirmation.
 4. Press **この音声を動画の入力にする** (Use as video input). Run `./bin/narration-video-gen run` and choose the new input set.
 

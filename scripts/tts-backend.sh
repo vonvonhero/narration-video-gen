@@ -139,6 +139,8 @@ prepare_models() {
   image=$(image_for "$backend")
   mkdir -p "$MODEL_ROOT/checkpoint" "$MODEL_ROOT/codec" "$MODEL_ROOT/huggingface"
   if ! models_ready; then
+    # Phase markers let the WebUI tell a download from an image build.
+    echo "nvg-phase: download"
     docker run --rm \
       -e "MODEL_ID=$MODEL_ID" -e "MODEL_REVISION=$MODEL_REVISION" \
       -e "CODEC_ID=$CODEC_ID" -e "CODEC_REVISION=$CODEC_REVISION" \
@@ -150,6 +152,7 @@ prepare_models() {
       'import os; from pathlib import Path; from huggingface_hub import hf_hub_download, snapshot_download; snapshot_download(repo_id=os.environ["MODEL_ID"], revision=os.environ["MODEL_REVISION"], allow_patterns=["model.safetensors", "tokenizer/*"], local_dir="/models/checkpoint"); hf_hub_download(repo_id=os.environ["CODEC_ID"], revision=os.environ["CODEC_REVISION"], filename="weights.pth", local_dir="/models/codec"); snapshot_download(repo_id=os.environ["SILENTCIPHER_ID"], revision=os.environ["SILENTCIPHER_REVISION"]); ref=Path("/models/huggingface/hub/models--sony--silentcipher/refs/main"); ref.parent.mkdir(parents=True, exist_ok=True); ref.write_text(os.environ["SILENTCIPHER_REVISION"]); import whisper; whisper.load_model("base", device="cpu", download_root="/models/whisper")'
   fi
   models_ready || { echo "Pinned TTS model download is incomplete." >&2; exit 1; }
+  echo "nvg-phase: verify"
   verify_models || { echo "A downloaded TTS/ASR model failed SHA-256 verification." >&2; exit 1; }
 }
 
@@ -238,7 +241,7 @@ require_docker
 backend=$(choose_backend)
 case "$command_name" in
   build) build_backend "$backend" ;;
-  prepare) build_backend "$backend"; prepare_models "$backend" ;;
+  prepare) echo "nvg-phase: build"; build_backend "$backend"; prepare_models "$backend" ;;
   start) build_backend "$backend"; start_backend "$backend" ;;
   convert) convert_audio "$backend" ;;
   stop) docker rm -f "$CONTAINER" >/dev/null 2>&1 || true ;;

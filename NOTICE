@@ -1,0 +1,10 @@
+narration-video-gen
+Copyright 2026 the narration-video-gen authors
+
+This product includes software developed as part of the ComfyUI, Wan2.1,
+Wan2.2, InfiniteTalk, SAM 2, Irodori-TTS and SilentCipher projects.
+
+See THIRD_PARTY_NOTICES.md for the licences and terms that apply to those
+components, and ASSET_LICENSES.md for the terms that apply to character images
+and narration audio. Those terms are not covered by this repository's
+Apache-2.0 licence.

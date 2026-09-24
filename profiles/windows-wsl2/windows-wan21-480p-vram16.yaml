@@ -1,0 +1,41 @@
+id: windows-wan21-480p-vram16
+schema_version: 1
+platform: windows-wsl2
+recipe: wan21-infinitetalk-480p
+status: recommended
+summary: Wan 2.1 480p on a 16 GiB GPU (RTX A4000, RTX 5060 Ti). Full length verified and reviewed.
+
+requires:
+  gpu_vram_gib_min: 16
+  physical_ram_gib_min: 32
+  host_ram_gib_min: 19
+  swap_gib_min: 16
+  free_disk_gib_min: 55
+
+settings:
+  blocks_to_swap: 19
+  face_detailer_size: 320
+  face_detailer_blocks_to_swap: 20
+  tiled_vae: false
+  use_non_blocking: false
+  wsl_ram_gib: 20
+  wsl_swap_gib: 32
+  rife_chunk_frames: 128
+
+evidence:
+  duration_class: full
+  frames: 429
+  seconds: 26.67
+  pipeline_stages: [infinitetalk, face-detailer, rife, retime]
+  gpu_evidence: physical
+  gpu_model: NVIDIA RTX A4000 (16 GiB)
+  qualified_gpu_models:
+    - NVIDIA GeForce RTX 5060 Ti (16 GiB)
+  visual_review: passed
+  references:
+    - docs/evidence.md
+
+host_changes:
+  - >-
+    WSL memory and swap are set in %UserProfile%\.wslconfig and only take effect
+    after `wsl --shutdown`, which stops every WSL distribution on the machine.

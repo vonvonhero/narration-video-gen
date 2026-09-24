@@ -1,0 +1,221 @@
+diff --git a/nodes_sampler.py b/nodes_sampler.py
+index 32b51c6..3425b59 100644
+--- a/nodes_sampler.py
++++ b/nodes_sampler.py
+@@ -686,7 +686,8 @@ class WanVideoSampler:
+             mtv_freqs = mtv_freqs.to(device, dtype)
+ 
+         #region S2V
+-        s2v_audio_input = s2v_ref_latent = s2v_pose = s2v_ref_motion = None
++        s2v_audio_input = s2v_ref_latent = s2v_pose = s2v_ref_motion = s2v_ref_image = None
++        s2v_start_from_ref = s2v_decode_offload = False
+         framepack = False
+         s2v_audio_embeds = image_embeds.get("audio_embeds", None)
+         if s2v_audio_embeds is not None:
+@@ -703,6 +704,15 @@ class WanVideoSampler:
+             s2v_ref_latent = s2v_audio_embeds.get("ref_latent", None)
+             if s2v_ref_latent is not None:
+                 s2v_ref_latent = s2v_ref_latent.to(device, dtype)
++            s2v_ref_image = s2v_audio_embeds.get("ref_image", None)
++            s2v_start_from_ref = s2v_audio_embeds.get("start_from_ref", False)
++            s2v_ref_hold_frames = s2v_audio_embeds.get("ref_hold_frames", 6)
++            s2v_decode_offload = s2v_audio_embeds.get(
++                "offload_transformer_before_vae_decode", False)
++            if s2v_start_from_ref and not framepack:
++                raise ValueError("start_from_ref requires enable_framepack")
++            if s2v_start_from_ref and s2v_ref_image is None:
++                raise ValueError("start_from_ref requires ref_image")
+             s2v_ref_motion = s2v_audio_embeds.get("ref_motion", None)
+             if s2v_ref_motion is not None:
+                 s2v_ref_motion = s2v_ref_motion.to(device, dtype)
+@@ -2052,6 +2062,18 @@ class WanVideoSampler:
+                     # region framepack loop
+                     elif framepack:
+                         framepack_out = []
++                        framepack_transformer_offloaded = False
++                        def check_framepack_tensor(value, phase, window):
++                            if not torch.isfinite(value).all().item():
++                                raise RuntimeError(
++                                    f"S2V FramePack window {window + 1}: non-finite {phase}")
++                            log.info(
++                                f"S2V FramePack window {window + 1}: {phase} "
++                                f"min={value.amin().item():.6g} "
++                                f"max={value.amax().item():.6g}")
++                            if phase == "decoded video" and value.amin().item() == value.amax().item():
++                                raise RuntimeError(
++                                    f"S2V FramePack window {window + 1}: spatially and temporally constant decoded video")
+                         ref_motion_image = None
+                         #infer_frames = image_embeds["num_frames"]
+                         infer_frames = s2v_audio_embeds.get("frame_window_size", 80)
+@@ -2080,6 +2102,18 @@ class WanVideoSampler:
+                                 [1, 3, motion_frames, latent.shape[2]*vae_upscale_factor, latent.shape[3]*vae_upscale_factor],
+                                 dtype=vae.dtype,
+                                 device=device)
++                            if s2v_start_from_ref:
++                                if s2v_ref_image is None:
++                                    raise ValueError("start_from_ref requires ref_image")
++                                ref_frame = s2v_ref_image[:1].movedim(-1, 1).unsqueeze(2)
++                                ref_frame = (ref_frame.to(device, vae.dtype) * 2.0) - 1.0
++                                if ref_frame.shape[-2:] != ref_motion_image.shape[-2:]:
++                                    ref_frame = torch.nn.functional.interpolate(
++                                        ref_frame.squeeze(2), size=ref_motion_image.shape[-2:],
++                                        mode="bicubic", align_corners=False).unsqueeze(2)
++                                hold_frames = min(s2v_ref_hold_frames, ref_motion_image.shape[2])
++                                ref_motion_image[:, :, -hold_frames:] = ref_frame
++                                del ref_frame
+                         videos_last_frames = ref_motion_image
+ 
+                         if s2v_pose is not None:
+@@ -2108,6 +2142,24 @@ class WanVideoSampler:
+ 
+                                 vae.to(offload_device)
+ 
++                            if framepack_transformer_offloaded:
++                                check_framepack_tensor(ref_motion, "motion latent", r)
++                                log.info("Reloading S2V transformer after FramePack VAE decode")
++                                if transformer.patched_linear and gguf_reader is None:
++                                    load_weights(
++                                        patcher.model.diffusion_model, patcher.model["sd"],
++                                        weight_dtype, base_dtype=dtype,
++                                        transformer_load_device=device,
++                                        block_swap_args=block_swap_args)
++                                elif gguf_reader is not None:
++                                    load_weights(
++                                        transformer, patcher.model["sd"], base_dtype=dtype,
++                                        transformer_load_device=device, patcher=patcher,
++                                        gguf=True, reader=gguf_reader,
++                                        block_swap_args=block_swap_args)
++                                init_blockswap(transformer, block_swap_args, model)
++                                framepack_transformer_offloaded = False
++
+                             left_idx = r * infer_frames
+                             right_idx = r * infer_frames + infer_frames
+ 
+@@ -2150,4 +2202,5 @@ class WanVideoSampler:
+ 
++                                check_framepack_tensor(noise_pred, f"prediction step {i + 1}", r)
+                                 latent = sample_scheduler.step(
+                                         noise_pred.unsqueeze(0), timestep, latent.unsqueeze(0),
+                                         **scheduler_step_args)[0].squeeze(0)
+@@ -2159,23 +2212,62 @@ class WanVideoSampler:
+                                 del latent_model_input, noise_pred
+ 
+ 
++                            # Sampling for this FramePack window is complete. A
++                            # constrained profile may explicitly free the
++                            # transformer before the non-tiled VAE decode.
++                            check_framepack_tensor(latent, "sampled latent", r)
++                            if (s2v_decode_offload and force_offload
++                                    and not model["auto_cpu_offload"]):
++                                log.info("Offloading S2V transformer before FramePack VAE decode")
++                                offload_transformer(transformer, remove_lora=False)
++                                framepack_transformer_offloaded = True
++                                if cache_args is not None:
++                                    self.cache_state = [None] * len(self.cache_state)
++                                mm.soft_empty_cache()
++                                gc.collect()
++
+                             vae.to(device)
+                             decode_latents = torch.cat([ref_motion.unsqueeze(0), latent.unsqueeze(0)], dim=2)
+                             image = vae.decode(decode_latents.to(device, vae.dtype), device=device, pbar=False)[0]
+                             del decode_latents
+                             image = image.unsqueeze(0)[:, :, -infer_frames:]
++                            check_framepack_tensor(image, "decoded video", r)
+-                            if r == 0:
++                            if r == 0 and not s2v_start_from_ref:
+                                 image = image[:, :, 3:]
+ 
+-                            framepack_out.append(image.cpu())
+-
+-                            overlap_frames_num = min(motion_frames, image.shape[2])
+-
+-                            videos_last_frames = torch.cat([
+-                                videos_last_frames[:, :, overlap_frames_num:],
+-                                image[:, :, -overlap_frames_num:]], dim=2).to(device, vae.dtype)
++                            image_for_output = image.cpu()
++                            framepack_out.append(image_for_output)
++
++                            if r + 1 < s2v_num_repeat:
++                                overlap_frames_num = min(motion_frames, image.shape[2])
++                                continuation_device = (
++                                    torch.device("cpu")
++                                    if s2v_decode_offload else device)
++                                continuation = videos_last_frames[
++                                    :, :, overlap_frames_num:].to(
++                                        continuation_device, vae.dtype)
++                                window_tail = (
++                                    image_for_output if s2v_decode_offload else image
++                                )[:, :, -overlap_frames_num:].to(
++                                    continuation_device, vae.dtype)
++                                videos_last_frames = torch.cat(
++                                    [continuation, window_tail], dim=2)
++
++                                ref_motion_image = videos_last_frames
++                                if s2v_decode_offload:
++                                    log.info(
++                                        "Keeping S2V FramePack continuation frames "
++                                        "offloaded between windows")
++                                del continuation, window_tail
++                            else:
++                                del videos_last_frames, ref_motion_image
+ 
+-                            ref_motion_image = videos_last_frames
++                            del image_for_output
++                            del ref_motion, input_motion_latents, latent
++                            del s2v_audio_input_slice, s2v_pose_slice, image
++                            del sample_scheduler, timesteps
++                            mm.soft_empty_cache()
++                            gc.collect()
+ 
+                         vae.to(offload_device)
+ 
+diff --git a/s2v/nodes.py b/s2v/nodes.py
+index b008c82..b2cda5b 100644
+--- a/s2v/nodes.py
++++ b/s2v/nodes.py
+@@ -59,9 +59,13 @@ class WanVideoAddS2VEmbeds:
+                 "optional": {
+                     "audio_encoder_output": ("AUDIO_ENCODER_OUTPUT",),
+                     "ref_latent": ("LATENT",),
++                    "ref_image": ("IMAGE",),
+                     "pose_latent": ("LATENT",),
+                     "vae": ("WANVAE",),
+-                    "enable_framepack": ("BOOLEAN", {"default": False, "tooltip": "Enable Framepack sampling loop, not compatible with context windows"})
++                    "enable_framepack": ("BOOLEAN", {"default": False, "tooltip": "Enable Framepack sampling loop, not compatible with context windows"}),
++                    "start_from_ref": ("BOOLEAN", {"default": False, "tooltip": "Use the reference image as the first generated frame"}),
++                    "ref_hold_frames": ("INT", {"default": 6, "min": 1, "max": 6, "step": 1, "tooltip": "Number of initial motion frames anchored to the reference image"}),
++                    "offload_transformer_before_vae_decode": ("BOOLEAN", {"default": False, "tooltip": "Offload the transformer before each FramePack VAE decode"})
+                 }
+         }
+ 
+@@ -70,7 +74,11 @@ class WanVideoAddS2VEmbeds:
+     FUNCTION = "add"
+     CATEGORY = "WanVideoWrapper"
+ 
+-    def add(self, embeds, frame_window_size, audio_encoder_output=None, audio_scale=1.0, ref_latent=None, pose_latent=None, vae=None, pose_start_percent=0.0, pose_end_percent=1.0, enable_framepack=False):
++    def add(self, embeds, frame_window_size, audio_encoder_output=None, audio_scale=1.0, ref_latent=None, ref_image=None, pose_latent=None, vae=None, pose_start_percent=0.0, pose_end_percent=1.0, enable_framepack=False, start_from_ref=False, ref_hold_frames=6, offload_transformer_before_vae_decode=False):
++        if start_from_ref and not enable_framepack:
++            raise ValueError("start_from_ref requires enable_framepack")
++        if start_from_ref and ref_image is None:
++            raise ValueError("start_from_ref requires ref_image")
+         audio_frame_count=0
+         if audio_encoder_output is not None:
+             all_layers = audio_encoder_output["encoded_audio_all_layers"]
+@@ -111,6 +119,10 @@ class WanVideoAddS2VEmbeds:
+             "audio_embed_bucket": audio_embed_bucket if audio_encoder_output is not None else None,
+             "num_repeat": num_repeat if audio_encoder_output is not None else None,
+             "ref_latent": ref_latent["samples"] if ref_latent is not None else None,
++            "ref_image": ref_image,
++            "start_from_ref": start_from_ref,
++            "ref_hold_frames": ref_hold_frames,
++            "offload_transformer_before_vae_decode": offload_transformer_before_vae_decode,
+             "pose_latent": pose_latent["samples"] if pose_latent is not None else None,
+             "audio_scale": audio_scale,
+             "vae": vae,
+@@ -181,4 +193,4 @@ NODE_CLASS_MAPPINGS = {
+ 
+ NODE_DISPLAY_NAME_MAPPINGS = {
+     "WanVideoAddS2VEmbeds": "WanVideo Add S2V Embeds",
+-}
+\ No newline at end of file
++}

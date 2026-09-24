@@ -1,0 +1,36 @@
+id: linux-wan22-480p-q4ks-ram16-vram12-simulated-bs34
+schema_version: 1
+platform: linux
+recipe: wan22-s2v-480p-short-q4ks
+status: experimental
+qualification_state: planned
+summary: Wan 2.2 480p Q4_K_S short test on a simulated 12 GiB GPU with 16 GiB RAM.
+
+requires:
+  gpu_vram_gib_min: 12
+  host_ram_gib_min: 15
+  swap_gib_min: 32
+  free_disk_gib_min: 30
+
+settings:
+  vram_ballast_mib: 4096
+  vram_ballast_device_index: 0
+  blocks_to_swap: 34
+  offload_transformer_before_vae_decode: true
+  encode_tiled: false
+  decode_tiled: false
+  use_non_blocking: false
+
+evidence:
+  duration_class: short
+  frames: 89
+  seconds: 5.5625
+  pipeline_stages: [s2v]
+  gpu_evidence: capacity-simulated
+  gpu_model: RTX 5060 Ti physical VRAM16 with 4096 MiB ballast
+  visual_review: pending
+  calibration_state: planned
+
+limitations:
+  - Short test only.
+  - Capacity-simulated; not verified on a physical 12 GiB GPU.

@@ -1,0 +1,33 @@
+id: linux-wan22-720p-vram16-q4ks-ram16-short
+schema_version: 1
+platform: linux
+recipe: wan22-s2v-720p-short-q4ks
+status: experimental
+qualification_state: planned
+summary: Wan 2.2 720p Q4_K_S candidate for a 16 GiB GPU with 16 GiB RAM. Not yet verified.
+
+requires:
+  gpu_vram_gib_min: 15
+  host_ram_gib_min: 15
+  swap_gib_min: 32
+  free_disk_gib_min: 30
+
+settings:
+  blocks_to_swap: 32
+  offload_transformer_before_vae_decode: true
+  encode_tiled: false
+  decode_tiled: false
+  use_non_blocking: false
+
+evidence:
+  duration_class: short
+  frames: 89
+  seconds: 5.5625
+  pipeline_stages: [s2v]
+  gpu_evidence: physical
+  gpu_model: NVIDIA GeForce RTX 5060 Ti (16 GiB)
+  visual_review: pending
+  calibration_state: planned
+
+limitations:
+  - Short test only.

@@ -1,0 +1,30 @@
+schema_version: 1
+models:
+  - id: irodori-tts-v4.1-small
+    repository: Aratako/Irodori-TTS-v4.1-Small
+    revision: 2b28324dc263ed5e6638b3cf3dd94c82ead07b4b
+    path: checkpoint/model.safetensors
+    bytes: 3064295596
+    sha256: c85de88c01700cb53538e706f128ebcb1b8513ad21d7d0e75f58bc82cdbf89f6
+    license: MIT with ethical-use notice in the model card
+  - id: semantic-dacvae-japanese-32dim
+    repository: Aratako/Semantic-DACVAE-Japanese-32dim
+    revision: 47376ee24834d7a05a48ebabfe3cde29b3c5e214
+    path: codec/weights.pth
+    bytes: 429620065
+    sha256: db120339c5ee7eca1912cdf29bc612b947a0808e69c3cebfb4936b45a762c1d5
+    license: MIT
+  - id: openai-whisper-base
+    repository: https://github.com/openai/whisper
+    revision: v20250625
+    path: whisper/base.pt
+    bytes: 145262807
+    sha256: ed3a0b6b1c0edf879ad9b11b1af5a0e6ab5db9205f891f668f8b0e6c6326e34e
+    license: MIT
+  - id: silentcipher
+    repository: Sony/SilentCipher
+    revision: a1c4d021905e0dc5b24be5f68db5fc4dba410ee1
+    path: huggingface/hub/models--sony--silentcipher/snapshots/a1c4d021905e0dc5b24be5f68db5fc4dba410ee1
+    bytes: 70328696
+    sha256: a1f5215fcb9d5fbc7c17841b124841cb5a0a7daf202632b69f8f6368f115eb08
+    license: MIT

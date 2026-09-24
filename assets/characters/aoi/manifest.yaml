@@ -1,0 +1,83 @@
+# Assets are referenced by asset_id, never by filename, so that a file can be
+# renamed or re-encoded without silently changing which input a run used.
+#
+# `redistributable: true` is what puts a file in this repository. Anything short
+# of that stays out, and .gitignore only un-ignores paths listed here.
+
+schema_version: 1
+character: aoi
+owner: repository author
+summary: >-
+  Aoi is a synthetic character: an AI-generated portrait paired with
+  AI-synthesised narration. No real person's likeness or voice is involved.
+
+assets:
+  - asset_id: aoi-portrait-angled-01
+    role: video_reference_image
+    path: images/aoi-portrait-angled-01.png
+    sha256: 8127e9f0e9f1c0f309054d7b0efa0f86c581ced0befc1506c1f0c0782b38bb7d
+    bytes: 1526878
+    media_type: image/png
+    provenance:
+      kind: ai-generated
+      service: ChatGPT (OpenAI)
+      account_tier: free
+      created: "2026-08-02"
+      # The prompt was not saved.
+      prompt: not recorded
+      seed: not applicable
+      source_assets: []
+    rights:
+      holder: repository author
+      license: >-
+        Owned by the repository author under the OpenAI Terms of Use, which
+        assign ownership of Output to the user. Redistributed here under this
+        repository's terms.
+      service_terms_url: https://openai.com/policies/row-terms-of-use/
+      redistributable: true
+      checked: "2026-08-06"
+    review:
+      state: adopted
+      notes: Portrait for the Aoi character.
+
+  - asset_id: aoi-narration-take3
+    role: narration_audio
+    path: audio/aoi-narration-take3.wav
+    sha256: 9bab2ef19dc52de5764f698aab75e8a116c29c921f9151b2a75bdffcfecc8699
+    bytes: 2744684
+    media_type: audio/wav
+    audio:
+      sample_format: pcm_s16le
+      sample_rate: 48000
+      channels: 1
+      duration_seconds: 28.59
+    provenance:
+      kind: ai-generated
+      recipe: tts-irodori-v3
+      model: Aratako/Irodori-TTS-600M-v3-VoiceDesign
+      checkpoint_revision: e863a3a93e652e09afeff3e84823a206a0a60314
+      take_id: user_take3
+      seed: 1315520242
+      duration_scale: 1.0
+      # The speaker reference was itself generated without reference audio.
+      reference_audio: synthetic clip generated with --no-ref (not published)
+      reference_audio_kind: ai-generated
+      human_voice_in_chain: false
+      assembly: >-
+        Sentences 2-6 reused from take_0002. Sentence 1 regenerated and then
+        trimmed at 1.74 s, using a Whisper transcript to locate an extraneous
+        utterance after the greeting, keeping 0.30 s of trailing silence.
+        Joined with gaps 0.50, 0.50, 0.80, 0.50, 0.60 and 1.5 s of tail reverb.
+      watermark: silentcipher
+    rights:
+      holder: repository author
+      license: Owned by the repository author; model output under MIT-licensed weights
+      model_license: MIT
+      model_license_url: https://huggingface.co/Aratako/Irodori-TTS-600M-v3-VoiceDesign
+      human_voice: false
+      consent_record: not applicable (no human speaker at any point in the chain)
+      redistributable: true
+      checked: "2026-08-06"
+    review:
+      state: adopted
+      notes: Narration for the Aoi character. Reviewed by listening.

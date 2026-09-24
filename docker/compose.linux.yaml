@@ -1,0 +1,5 @@
+# Linux overlay. Nothing to adjust: the container sees the host's memory and
+# swap directly, so the limits in a profile are host settings, not compose
+# settings.
+services:
+  comfy: {}

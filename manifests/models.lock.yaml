@@ -1,0 +1,250 @@
+# Model weights are never committed to this repository and never baked into a
+# container image. This file is the contract instead: exact upstream location,
+# byte size and SHA-256 for every file the recipes need.
+#
+# `narration-video-gen hashes` re-checks downloaded files locally.
+#
+# Licences are recorded per model because they are not all the same as this
+# repository's Apache-2.0, and a few carry usage terms beyond the licence text.
+# See THIRD_PARTY_NOTICES.md.
+
+schema_version: 1
+models:
+  # -- Q4_K_S base models for GPUs with 12 GiB or less ----------------------
+  - id: wan21-i2v-14b-480p-q4ks
+    path: diffusion_models/wan2.1-i2v-14b-480p-Q4_K_S.gguf
+    url: https://huggingface.co/city96/Wan2.1-I2V-14B-480P-gguf/resolve/main/wan2.1-i2v-14b-480p-Q4_K_S.gguf
+    bytes: 10437606784
+    sha256: 6575a0f9bae2e0fb150d8826bd52ce0f4e920ebceda5c84b5fc46dd1bb1b2b98
+    license: Apache-2.0
+    license_url: https://github.com/Wan-Video/Wan2.1/blob/main/LICENSE.txt
+    upstream: city96 GGUF Q4_K_S conversion of Wan2.1-I2V-14B-480P
+    notes: Base model for Wan2.1 configurations at 12 GiB or less.
+  - id: wan22-s2v-14b-q4ks
+    path: diffusion_models/WanVideo/S2V/Wan2.2-S2V-14B-Q4_K_S.gguf
+    url: https://huggingface.co/QuantStack/Wan2.2-S2V-14B-GGUF/resolve/main/Wan2.2-S2V-14B-Q4_K_S.gguf
+    bytes: 12958119520
+    sha256: ed773b60343999ab733fed55734d77c02649ac2fd503569d20943347a04cfccd
+    license: Apache-2.0
+    license_url: https://huggingface.co/Wan-AI/Wan2.2-S2V-14B/blob/main/LICENSE.txt
+    upstream: QuantStack GGUF Q4_K_S conversion of Wan2.2-S2V-14B
+    notes: Base model for Wan2.2 configurations at 12 GiB or less.
+  # -- Wan2.1 + InfiniteTalk -------------------------------------------------
+
+  - id: wan21-i2v-14b-480p-q6k
+    path: diffusion_models/wan2.1-i2v-14b-480p-Q6_K.gguf
+    url: https://huggingface.co/city96/Wan2.1-I2V-14B-480P-gguf/resolve/main/wan2.1-i2v-14b-480p-Q6_K.gguf
+    bytes: 14233779584
+    sha256: c96a6576c6883f8112ab1318f9651274fcf4b854bbbfc2a54fad615d2c508879
+    license: Apache-2.0
+    license_url: https://github.com/Wan-Video/Wan2.1/blob/main/LICENSE.txt
+    upstream: Wan-AI/Wan2.1-I2V-14B-480P, quantised to GGUF Q6_K by city96
+    # Q6_K keeps the base around 14.2 GiB. Together with the Q8 InfiniteTalk head
+    # this leaves enough room at 480p without swapping on a 24 GiB card.
+    notes: GGUF cannot merge LoRAs; the LightX2V LoRA is applied at load time.
+
+  - id: infinitetalk-single-q8
+    path: diffusion_models/InfiniteTalk/Wan2_1-InfiniteTalk_Single_Q8.gguf
+    url: https://huggingface.co/Kijai/WanVideo_comfy_GGUF/resolve/main/InfiniteTalk/Wan2_1-InfiniteTalk_Single_Q8.gguf
+    bytes: 2646330016
+    sha256: c5e251c56174995d940494ec02fdf9d36da00dffdde6827829801cd171fe8ffd
+    license: Apache-2.0
+    license_url: https://github.com/MeiGen-AI/InfiniteTalk/blob/main/LICENSE
+    upstream: MeiGen-AI/InfiniteTalk single-speaker head, GGUF Q8 by Kijai
+
+  - id: wan21-vae-bf16
+    path: vae/Wan2_1_VAE_bf16.safetensors
+    url: https://huggingface.co/Kijai/WanVideo_comfy/resolve/main/Wan2_1_VAE_bf16.safetensors
+    bytes: 253806278
+    sha256: 1ab9a32cc2c740f6e39d80d367ce5dcc28db8c71b79b28670546b8973e9d75f9
+    license: Apache-2.0
+    license_url: https://github.com/Wan-Video/Wan2.1/blob/main/LICENSE.txt
+
+  - id: umt5-xxl-enc-fp8
+    path: text_encoders/umt5-xxl-enc-fp8_e4m3fn.safetensors
+    url: https://huggingface.co/Kijai/WanVideo_comfy/resolve/main/umt5-xxl-enc-fp8_e4m3fn.safetensors
+    bytes: 6731333792
+    sha256: 3fe5173588270c22505d4f9158bb1644b78331b8614206a97e92760b960c9ffa
+    license: Apache-2.0
+    upstream: google/umt5-xxl encoder, fp8_e4m3fn by Kijai
+    notes: fp8 is used to hold down the host RAM peak, not for speed.
+
+  - id: clip-vision-h
+    path: clip_vision/clip_vision_h.safetensors
+    url: https://huggingface.co/Comfy-Org/Wan_2.1_ComfyUI_repackaged/resolve/main/split_files/clip_vision/clip_vision_h.safetensors
+    bytes: 1264219396
+    sha256: 64a7ef761bfccbadbaa3da77366aac4185a6c58fa5de5f589b42a65bcc21f161
+    license: MIT
+    upstream: laion/CLIP-ViT-H-14, repackaged by Comfy-Org
+
+  - id: lightx2v-i2v-480p-rank64
+    path: loras/lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors
+    url: https://huggingface.co/Kijai/WanVideo_comfy/resolve/main/Lightx2v/lightx2v_I2V_14B_480p_cfg_step_distill_rank64_bf16.safetensors
+    bytes: 738005744
+    sha256: 85c4a61c30e0497aa44b91d93a893b624708461a56fe5485183b28fa07e2dfb3
+    license: Apache-2.0
+    upstream: lightx2v step-distillation LoRA
+    notes: This is what makes 6 sampling steps sufficient instead of 30 or more.
+
+  - id: wav2vec2-chinese-base-fp16
+    path: wav2vec2/wav2vec2-chinese-base_fp16.safetensors
+    url: https://huggingface.co/Kijai/wav2vec2_safetensors/resolve/main/wav2vec2-chinese-base_fp16.safetensors
+    bytes: 190115368
+    sha256: 000813e441020f18cff844c969d2d5d4adc2a5ce46b2db1f23950b05d88805b4
+    license: Apache-2.0
+    upstream: TencentGameMate/chinese-wav2vec2-base
+    # This is the audio encoder InfiniteTalk was trained against. It is not a
+    # language choice -- it is used unchanged for Japanese narration.
+    notes: Required by InfiniteTalk regardless of the narration language.
+
+  # -- optional MuseTalk 1.5 lip-sync stage -------------------------------
+
+  - id: musetalk-v15-unet
+    path: musetalk/musetalkV15/unet.pth
+    url: https://huggingface.co/TMElyralab/MuseTalk/resolve/main/musetalkV15/unet.pth
+    bytes: 3400074924
+    sha256: 7ebf6c98c181e20838e4c0054e96e944ac60d5d692cc01db42839fe11b787007
+    license: CreativeML-OpenRAIL-M
+    upstream: TMElyralab/MuseTalk 1.5
+
+  - id: musetalk-v15-config
+    path: musetalk/musetalkV15/musetalk.json
+    url: https://huggingface.co/TMElyralab/MuseTalk/resolve/main/musetalkV15/musetalk.json
+    bytes: 748
+    sha256: 5b6923aee04d71692e0e9846c471e0a4ea07a4f686d39545e472bd4ba17e1b47
+    license: CreativeML-OpenRAIL-M
+
+  - id: musetalk-whisper-tiny-model
+    path: musetalk/whisper/pytorch_model.bin
+    url: https://huggingface.co/openai/whisper-tiny/resolve/main/pytorch_model.bin
+    bytes: 151095027
+    sha256: 9607f98a2b22d9e229ae43c52ecea79dcede9e0c5cfae67e8da6eda86d8aac1d
+    license: Apache-2.0
+
+  - id: musetalk-whisper-tiny-config
+    path: musetalk/whisper/config.json
+    url: https://huggingface.co/openai/whisper-tiny/resolve/main/config.json
+    bytes: 1983
+    sha256: ffdccec4f3211f4c63310f2b7098f309fe70f3952cedc5e4d11e43f5b2379b98
+    license: Apache-2.0
+
+  - id: musetalk-whisper-tiny-preprocessor
+    path: musetalk/whisper/preprocessor_config.json
+    url: https://huggingface.co/openai/whisper-tiny/resolve/main/preprocessor_config.json
+    bytes: 184990
+    sha256: 9b5cd03a36fbb8a627c64d98a5b5b126ead95a77720723944487311f0110b666
+    license: Apache-2.0
+
+  - id: musetalk-sd-vae-model
+    path: musetalk/sd-vae/diffusion_pytorch_model.bin
+    url: https://huggingface.co/stabilityai/sd-vae-ft-mse/resolve/main/diffusion_pytorch_model.bin
+    bytes: 334707217
+    sha256: 1b4889b6b1d4ce7ae320a02dedaeff1780ad77d415ea0d744b476155c6377ddc
+    license: CreativeML-OpenRAIL-M
+
+  - id: musetalk-sd-vae-config
+    path: musetalk/sd-vae/config.json
+    url: https://huggingface.co/stabilityai/sd-vae-ft-mse/resolve/main/config.json
+    bytes: 547
+    sha256: 92d3dfb746fca211a2c9e019e285f8597412211728dce3c5bcf4eda0f2d62e7e
+    license: CreativeML-OpenRAIL-M
+
+  - id: musetalk-dwpose
+    path: musetalk/dwpose/dw-ll_ucoco_384.pth
+    url: https://huggingface.co/yzd-v/DWPose/resolve/main/dw-ll_ucoco_384.pth
+    bytes: 406878486
+    sha256: 0d9408b13cd863c4e95a149dd31232f88f2a12aa6cf8964ed74d7d97748c7a07
+    license: Apache-2.0
+
+  - id: musetalk-face-parse
+    path: musetalk/face-parse-bisent/79999_iter.pth
+    url: https://drive.usercontent.google.com/download?id=154JgKpzCPW82qINcVieuPH3fZ2e0P812&export=download&confirm=t
+    bytes: 53289463
+    sha256: 468e13ca13a9b43cc0881a9f99083a430e9c0a38abd935431d1c28ee94b26567
+    license: MIT
+    upstream: zllrunning/face-parsing.PyTorch
+
+  - id: musetalk-face-parse-resnet18
+    path: musetalk/face-parse-bisent/resnet18-5c106cde.pth
+    url: https://download.pytorch.org/models/resnet18-5c106cde.pth
+    bytes: 46827520
+    sha256: 5c106cde386e87d4033832f2996f5493238eda96ccf559d1d62760c4de0613f8
+    license: BSD-3-Clause
+
+  # -- Wan2.2 S2V pipeline --------------------------------------------------
+
+  - id: wan22-s2v-14b-fp8
+    path: diffusion_models/WanVideo/S2V/Wan2_2-S2V-14B_fp8_e4m3fn_scaled_KJ.safetensors
+    url: https://huggingface.co/Kijai/WanVideo_comfy_fp8_scaled/resolve/main/S2V/Wan2_2-S2V-14B_fp8_e4m3fn_scaled_KJ.safetensors
+    bytes: 16653330620
+    sha256: 01c50f3f368880d2aadcbcee4466e74fa14c228b03b23863827baf3e110e26d4
+    license: Apache-2.0
+    license_url: https://github.com/Wan-Video/Wan2.2/blob/main/LICENSE.txt
+    upstream: Wan-AI/Wan2.2-S2V-14B, fp8 scaled by Kijai
+
+  - id: wan22-t2v-a14b-low-fp8
+    path: diffusion_models/WanVideo/T2V/Wan2_2-T2V-A14B-LOW_fp8_e4m3fn_scaled_KJ.safetensors
+    url: https://huggingface.co/Kijai/WanVideo_comfy_fp8_scaled/resolve/main/T2V/Wan2_2-T2V-A14B-LOW_fp8_e4m3fn_scaled_KJ.safetensors
+    bytes: 15001361458
+    sha256: ce74fff05e37f995a0ae845f53510e43f98b838f4e75d846eb3e2929e7f555cc
+    license: Apache-2.0
+    license_url: https://github.com/Wan-Video/Wan2.2/blob/main/LICENSE.txt
+    notes: Used only by the face detailer stage, not by S2V generation.
+
+  - id: wan22-fun-vace-a14b-low-fp8
+    path: diffusion_models/WanVideo/VACE/Wan2_2_Fun_VACE_module_A14B_LOW_fp8_e4m3fn_scaled_KJ.safetensors
+    url: https://huggingface.co/Kijai/WanVideo_comfy_fp8_scaled/resolve/main/VACE/Wan2_2_Fun_VACE_module_A14B_LOW_fp8_e4m3fn_scaled_KJ.safetensors
+    bytes: 3052123036
+    sha256: 35d5449c622c398b64e4ea12e0f9edd936d76eeaf99d296f0b4de74595db7138
+    license: Apache-2.0
+    notes: VACE control module for the face detailer stage.
+
+  - id: lightx2v-t2v-rank64-v2
+    path: loras/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16.safetensors
+    url: https://huggingface.co/fal/lightx2v-lora/resolve/main/lightx2v_T2V_14B_cfg_step_distill_v2_lora_rank64_bf16.safetensors
+    bytes: 630697104
+    sha256: 37d49218544b9e0bfb8e831d1399f451fbc5068aff6474f42a90c928363c3573
+    license: Apache-2.0
+    notes: Applied at strength 1.5 in the Wan2.2 recipes.
+
+  - id: wav2vec2-large-english-fp16
+    path: audio_encoders/wav2vec2_large_english_fp16.safetensors
+    url: https://huggingface.co/Comfy-Org/Wan_2.2_ComfyUI_Repackaged/resolve/main/split_files/audio_encoders/wav2vec2_large_english_fp16.safetensors
+    bytes: 630997322
+    sha256: f0017a43ea57ef6b3d4866be607844bbd8cada6d30966f7d70044ed0d63d3f9e
+    license: Apache-2.0
+    notes: The audio encoder Wan2.2-S2V expects; used unchanged for Japanese.
+
+  - id: sam2.1-hiera-small
+    path: sam2/sam2.1_hiera_small-fp16.safetensors
+    # The node receives this base name and adds -fp16 when precision is fp16.
+    node_name: sam2.1_hiera_small.safetensors
+    url: https://huggingface.co/Kijai/sam2-safetensors/resolve/main/sam2.1_hiera_small-fp16.safetensors
+    bytes: 92181820
+    sha256: b766bb5aea81d3b7a09c8d3f74d1527144bb848d43e5bb1fe4152528a60c683b
+    license: Apache-2.0
+    license_url: https://github.com/facebookresearch/sam2/blob/main/LICENSE
+    upstream: facebook/sam2.1-hiera-small, converted to fp16 safetensors by Kijai
+    notes: Face segmentation for the face detailer stage.
+
+  - id: yunet-face-detector
+    path: face_detection/face_detection_yunet_2023mar.onnx
+    url: https://media.githubusercontent.com/media/opencv/opencv_zoo/main/models/face_detection_yunet/face_detection_yunet_2023mar.onnx
+    bytes: 232589
+    sha256: 8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4
+    license: MIT
+    license_url: https://github.com/opencv/opencv_zoo/blob/main/models/face_detection_yunet/LICENSE
+    upstream: opencv/opencv_zoo face_detection_yunet_2023mar
+    notes: Detects the primary face in the first frame before SAM2 tracking.
+
+  - id: rife49
+    path: rife/rife49.pth
+    url: https://github.com/Fannovel16/ComfyUI-Frame-Interpolation/releases/download/models/rife49.pth
+    bytes: 21345274
+    sha256: e55fd00f3cc184e3c65961f4bb827a9da022e78eed36b055242c0ac30000d533
+    license: MIT
+    upstream: Fannovel16/ComfyUI-Frame-Interpolation RIFE 4.9 checkpoint
+    notes: >-
+      Prepared and hashed before generation. The runtime maps this path to
+      the pinned custom node's ckpts/rife directory so the node never falls
+      back to a lazy network download.

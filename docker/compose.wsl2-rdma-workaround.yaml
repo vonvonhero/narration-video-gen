@@ -1,0 +1,8 @@
+# Compatibility overlay for WSL2. It prevents older Windows drivers from using
+# a broken GPUDirect RDMA VMM path and is harmless for this local single-GPU
+# workload on newer drivers. scripts/up.sh enables it by default under WSL2;
+# NVG_WSL2_ALLOCATOR_WORKAROUND=0 disables it for validation.
+services:
+  comfy:
+    environment:
+      LD_PRELOAD: /opt/vmm-rdma-interpose.so

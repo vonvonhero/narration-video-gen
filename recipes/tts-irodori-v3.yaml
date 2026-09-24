@@ -1,0 +1,49 @@
+# Narration synthesis. This produces the audio track the video recipes consume.
+id: tts-irodori-v3
+schema_version: 1
+model_family: irodori-tts
+kind: audio
+summary: >-
+  Japanese narration synthesis with Irodori-TTS v3 VoiceDesign. Synthesised per
+  script part, checked part by part, then joined -- long single-shot synthesis
+  drifts in timbre.
+
+# Every component is pinned. `tts_model_version` is the published model version;
+# `take_id` is the revision of a particular recording.
+tts_model_version: v3
+checkpoint:
+  repository: Aratako/Irodori-TTS-600M-v3-VoiceDesign
+  revision: e863a3a93e652e09afeff3e84823a206a0a60314
+code:
+  repository: https://github.com/Aratako/Irodori-TTS
+  commit: 8ca3acb58ab4e19ad6d594aaed6bafe3e88f7f71
+codec:
+  repository: Aratako/Semantic-DACVAE-Japanese-32dim
+  revision: 47376ee24834d7a05a48ebabfe3cde29b3c5e214
+
+output:
+  sample_format: pcm_s16le
+  sample_rate: 48000
+  channels: 1
+  # Irodori-TTS embeds a SilentCipher watermark in its output.
+  watermark: silentcipher
+
+synthesis:
+  mode: per_part
+  # The seed must be fixed. Without it each call picks a new voice and the parts
+  # come out sounding like different people.
+  requires_fixed_seed: true
+
+quality_gates:
+  - per-part ASR transcription compared against the script
+  - waveform and silence inspection for truncation or dropouts
+  - human listening pass per part
+  - human listening pass after joining
+
+notes:
+  - >-
+    Used to create the bundled character narrations. New narration uses
+    tts-irodori-v4.1.
+  - >-
+    The model card forbids imitating a real person's voice without consent and
+    forbids deceptive use. See THIRD_PARTY_NOTICES.md.

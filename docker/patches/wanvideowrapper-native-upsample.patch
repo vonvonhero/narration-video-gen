@@ -1,0 +1,59 @@
+--- a/wanvideo/wan_video_vae.py
++++ b/wanvideo/wan_video_vae.py
+@@ -63,10 +63,15 @@
+ 
+ class Upsample(nn.Upsample):
+ 
++    native_upsample = False
++
+     def forward(self, x):
+         """
+         Fix bfloat16 support for nearest neighbor interpolation.
+         """
++        # The pinned PyTorch CUDA nearest-exact kernel supports BF16/FP16.
++        if self.native_upsample:
++            return super().forward(x)
+         return super().forward(x.float()).type_as(x)
+ 
+ 
+--- a/nodes_model_loading.py
++++ b/nodes_model_loading.py
+@@ -9,7 +9,7 @@
+ from .wanvideo.modules.model import WanModel, LoRALinearLayer, WanRMSNorm
+ from .wanvideo.modules.t5 import T5EncoderModel
+ from .wanvideo.modules.clip import CLIPModel
+-from .wanvideo.wan_video_vae import WanVideoVAE, WanVideoVAE38
++from .wanvideo.wan_video_vae import WanVideoVAE, WanVideoVAE38, Upsample
+ from .custom_linear import _replace_linear
+ 
+ from accelerate import init_empty_weights
+@@ -1887,6 +1887,7 @@
+                 ),
+                 "compile_args": ("WANCOMPILEARGS", ),
+                 "use_cpu_cache": ("BOOLEAN", {"default": False, "tooltip": "Reduces VRAM usage, but slows the VAE down a lot"}),
++                "native_upsample": ("BOOLEAN", {"default": False, "tooltip": "Keep nearest-exact expansion in the VAE dtype without temporary FP32 buffers"}),
+                 "verbose": ("BOOLEAN", {"default": False, "tooltip": "Enables memory usage logging when using the model"}),
+             }
+         }
+@@ -1897,7 +1898,7 @@
+     CATEGORY = "WanVideoWrapper"
+     DESCRIPTION = "Loads Wan VAE model from 'ComfyUI/models/vae'"
+ 
+-    def loadmodel(self, model_name, precision, compile_args=None, use_cpu_cache=False, verbose=False):
++    def loadmodel(self, model_name, precision, compile_args=None, use_cpu_cache=False, verbose=False, native_upsample=False):
+         dtype = {"bf16": torch.bfloat16, "fp16": torch.float16, "fp32": torch.float32}[precision]
+         model_path = folder_paths.get_full_path_or_raise("vae", model_name)
+         vae_sd = load_torch_file(model_path, safe_load=True)
+@@ -1917,6 +1918,12 @@
+             vae = WanVideoVAE(dtype=dtype, pruning_rate=pruning_rate, cpu_cache=use_cpu_cache, verbose=verbose)
+         elif vae_sd["model.conv2.weight"].shape[0] == 48:
+             vae = WanVideoVAE38(dtype=dtype, pruning_rate=pruning_rate, cpu_cache=use_cpu_cache, verbose=verbose)
++
++        # Configure each newly loaded VAE before compiling; the explicit loader
++        # input keeps ComfyUI cache entries separate for the two modes.
++        for module in vae.modules():
++            if isinstance(module, Upsample):
++                module.native_upsample = native_upsample
+ 
+         vae.load_state_dict(vae_sd)
+         del vae_sd

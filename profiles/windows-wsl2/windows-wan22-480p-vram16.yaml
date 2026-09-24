@@ -1,0 +1,68 @@
+id: windows-wan22-480p-vram16
+schema_version: 1
+platform: windows-wsl2
+recipe: wan22-s2v-480p
+status: recommended
+summary: Wan 2.2 480p on a 16 GiB GPU (RTX 5060 Ti, RTX A4000). Full length verified and reviewed.
+
+requires:
+  gpu_vram_gib_min: 16
+  physical_ram_gib_min: 32
+  host_ram_gib_min: 20
+  swap_gib_min: 32
+  free_disk_gib_min: 80
+
+settings:
+  blocks_to_swap: 22
+  face_detailer_size: 320
+  face_detailer_blocks_to_swap: 20
+  encode_tiled: false
+  decode_tiled: false
+  use_non_blocking: false
+  wsl_ram_gib: 20
+  wsl_swap_gib: 32
+  rife_chunk_frames: 128
+
+evidence:
+  duration_class: full
+  frames: 429
+  seconds: 26.67
+  output_fps: 60
+  pipeline_stages: [s2v, face-detailer, rife, retime]
+  gpu_evidence: physical
+  gpu_model: NVIDIA GeForce RTX 5060 Ti (16 GiB)
+  qualified_gpu_models:
+    - NVIDIA RTX A4000 (16 GiB)
+  visual_review: passed
+  wall_clock_minutes: 45.5
+  stage_minutes:
+    s2v: 24.1
+    face-detailer: 15.0
+    rife: 5.8
+    retime: 0.1
+  references:
+    - docs/evidence.md
+
+timing:
+  reference:
+    wall_clock_seconds: 2729.3
+    scope: e2e
+    environment: local-wsl2
+    stage_minutes: {s2v: 24.1, face-detailer: 15.0, rife: 5.8, retime: 0.1}
+  observations:
+    - wall_clock_seconds: 2729.3
+      scope: e2e
+      environment: local-wsl2
+    - wall_clock_seconds: 3369.1
+      scope: e2e
+      environment: local-wsl2
+limitations:
+  - On another 16 GiB GPU, calibrate may find a faster setting.
+
+host_changes:
+  - >-
+    32 GiB of WSL swap on the Windows filesystem. Check free space on C: before
+    starting.
+  - >-
+    WSL memory and swap are set in %UserProfile%\.wslconfig and only take effect
+    after `wsl --shutdown`, which stops every WSL distribution on the machine.

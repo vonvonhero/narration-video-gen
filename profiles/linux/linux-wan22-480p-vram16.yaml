@@ -1,0 +1,56 @@
+id: linux-wan22-480p-vram16
+schema_version: 1
+platform: linux
+recipe: wan22-s2v-480p
+status: recommended
+summary: Wan 2.2 480p on a 16 GiB GPU. Full length verified and reviewed.
+
+requires:
+  gpu_vram_gib_min: 16
+  host_ram_gib_min: 19
+  swap_gib_min: 20
+  free_disk_gib_min: 80
+
+settings:
+  blocks_to_swap: 20
+  face_detailer_size: 320
+  face_detailer_blocks_to_swap: 20
+  encode_tiled: false
+  decode_tiled: false
+  use_non_blocking: false
+  rife_chunk_frames: 128
+
+evidence:
+  duration_class: full
+  frames: 457
+  seconds: 28.59
+  pipeline_stages: [s2v, face-detailer, rife, retime]
+  gpu_evidence: physical
+  gpu_model: NVIDIA RTX A4000 (16 GiB)
+  visual_review: passed
+  headroom_mib: 484
+  stage_minutes:
+    s2v: 24.8
+    face-detailer: 5.4
+    rife: 1.6
+    retime: 0.1
+  references:
+    - docs/evidence.md
+
+timing:
+  reference:
+    wall_clock_seconds: 1934.667
+    scope: e2e
+    environment: runpod
+    stage_minutes: {s2v: 24.8, face-detailer: 5.4, rife: 1.6, retime: 0.1}
+  observations:
+    - wall_clock_seconds: 1934.667
+      scope: e2e
+      environment: runpod
+      thermal_class: sustained
+    - wall_clock_seconds: 3203.036
+      scope: e2e
+      environment: local-vm
+      thermal_class: throttled
+limitations:
+  - About 480 MiB of VRAM is left free. Close other programs that use the GPU.

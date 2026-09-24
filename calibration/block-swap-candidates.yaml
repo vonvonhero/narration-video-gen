@@ -1,0 +1,49 @@
+# Named profile hypotheses used by the calibration search.  They are
+# materialised as complete, run-scoped profiles before any GPU attempt starts;
+# the harness never overrides blocks_to_swap on a CLI command line.  Every
+# supported integer is present so "minimum stable" means the exact declared
+# setting, not the nearest coarse bucket.
+schema_version: 1
+id: block-swap-grid-v2
+profile_hypotheses:
+  - {id: blocks-00, settings: {blocks_to_swap: 0}}
+  - {id: blocks-01, settings: {blocks_to_swap: 1}}
+  - {id: blocks-02, settings: {blocks_to_swap: 2}}
+  - {id: blocks-03, settings: {blocks_to_swap: 3}}
+  - {id: blocks-04, settings: {blocks_to_swap: 4}}
+  - {id: blocks-05, settings: {blocks_to_swap: 5}}
+  - {id: blocks-06, settings: {blocks_to_swap: 6}}
+  - {id: blocks-07, settings: {blocks_to_swap: 7}}
+  - {id: blocks-08, settings: {blocks_to_swap: 8}}
+  - {id: blocks-09, settings: {blocks_to_swap: 9}}
+  - {id: blocks-10, settings: {blocks_to_swap: 10}}
+  - {id: blocks-11, settings: {blocks_to_swap: 11}}
+  - {id: blocks-12, settings: {blocks_to_swap: 12}}
+  - {id: blocks-13, settings: {blocks_to_swap: 13}}
+  - {id: blocks-14, settings: {blocks_to_swap: 14}}
+  - {id: blocks-15, settings: {blocks_to_swap: 15}}
+  - {id: blocks-16, settings: {blocks_to_swap: 16}}
+  - {id: blocks-17, settings: {blocks_to_swap: 17}}
+  - {id: blocks-18, settings: {blocks_to_swap: 18}}
+  - {id: blocks-19, settings: {blocks_to_swap: 19}}
+  - {id: blocks-20, settings: {blocks_to_swap: 20}}
+  - {id: blocks-21, settings: {blocks_to_swap: 21}}
+  - {id: blocks-22, settings: {blocks_to_swap: 22}}
+  - {id: blocks-23, settings: {blocks_to_swap: 23}}
+  - {id: blocks-24, settings: {blocks_to_swap: 24}}
+  - {id: blocks-25, settings: {blocks_to_swap: 25}}
+  - {id: blocks-26, settings: {blocks_to_swap: 26}}
+  - {id: blocks-27, settings: {blocks_to_swap: 27}}
+  - {id: blocks-28, settings: {blocks_to_swap: 28}}
+  - {id: blocks-29, settings: {blocks_to_swap: 29}}
+  - {id: blocks-30, settings: {blocks_to_swap: 30}}
+  - {id: blocks-31, settings: {blocks_to_swap: 31}}
+  - {id: blocks-32, settings: {blocks_to_swap: 32}}
+  - {id: blocks-33, settings: {blocks_to_swap: 33}}
+  - {id: blocks-34, settings: {blocks_to_swap: 34}}
+  - {id: blocks-35, settings: {blocks_to_swap: 35}}
+  - {id: blocks-36, settings: {blocks_to_swap: 36}}
+  - {id: blocks-37, settings: {blocks_to_swap: 37}}
+  - {id: blocks-38, settings: {blocks_to_swap: 38}}
+  - {id: blocks-39, settings: {blocks_to_swap: 39}}
+  - {id: blocks-40, settings: {blocks_to_swap: 40}}

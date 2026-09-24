@@ -1,0 +1,25 @@
+# VRAM released by one additional transformer block swap during Short runs.
+# For bs=0, calibration confirms three Short passes, derives the available
+# margin in blocks from their worst peak, then selects only +0 through +3
+# directly for Full qualification.
+schema_version: 1
+id: zero-swap-block-margin-v1
+tiers:
+  # This policy is only relevant once a Short run can pass at bs=0.  The
+  # <=20 GiB tiers require block swapping and therefore do not belong here.
+  - vram_gib: 24
+    vram_per_block_mib: {wan21-480p: 350, wan21-720p: 350, wan22-480p: 350, wan22-720p: 350}
+    evidence_status: {wan21-480p: provisional, wan21-720p: provisional, wan22-480p: observed, wan22-720p: provisional}
+    bootstrap_source_vram_gib: {wan21-480p: 24, wan21-720p: 24, wan22-480p: 24, wan22-720p: 24}
+  - vram_gib: 32
+    vram_per_block_mib: {wan21-480p: 350, wan21-720p: 350, wan22-480p: 350, wan22-720p: 350}
+    evidence_status: {wan21-480p: provisional, wan21-720p: provisional, wan22-480p: provisional, wan22-720p: provisional}
+    bootstrap_source_vram_gib: {wan21-480p: 24, wan21-720p: 24, wan22-480p: 24, wan22-720p: 24}
+  - vram_gib: 40
+    vram_per_block_mib: {wan21-480p: 350, wan21-720p: 350, wan22-480p: 350, wan22-720p: 350}
+    evidence_status: {wan21-480p: provisional, wan21-720p: provisional, wan22-480p: provisional, wan22-720p: provisional}
+    bootstrap_source_vram_gib: {wan21-480p: 24, wan21-720p: 24, wan22-480p: 24, wan22-720p: 24}
+  - vram_gib: 48
+    vram_per_block_mib: {wan21-480p: 350, wan21-720p: 350, wan22-480p: 350, wan22-720p: 350}
+    evidence_status: {wan21-480p: provisional, wan21-720p: provisional, wan22-480p: provisional, wan22-720p: provisional}
+    bootstrap_source_vram_gib: {wan21-480p: 24, wan21-720p: 24, wan22-480p: 24, wan22-720p: 24}

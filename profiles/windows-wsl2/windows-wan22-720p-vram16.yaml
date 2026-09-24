@@ -1,0 +1,46 @@
+id: windows-wan22-720p-vram16
+schema_version: 1
+platform: windows-wsl2
+recipe: wan22-s2v-720p
+status: acceptable
+summary: Wan 2.2 720p on a 16 GiB GPU with 24 GiB RAM. Full length verified and reviewed.
+
+requires:
+  gpu_vram_gib_min: 16
+  physical_ram_gib_min: 24
+  host_ram_gib_min: 16
+  swap_gib_min: 48
+  free_disk_gib_min: 80
+
+settings:
+  blocks_to_swap: 40
+  offload_transformer_before_vae_decode: true
+  face_detailer_size: 384
+  face_detailer_blocks_to_swap: 30
+  encode_tiled: false
+  decode_tiled: false
+  use_non_blocking: false
+  wsl_ram_gib: 16
+  wsl_swap_gib: 48
+  rife_chunk_frames: 64
+
+evidence:
+  duration_class: full
+  frames: 457
+  seconds: 28.59
+  output_fps: 60
+  pipeline_stages: [s2v, face-detailer, rife, retime]
+  gpu_evidence: physical
+  gpu_model: NVIDIA GeForce RTX 5060 Ti (16 GiB)
+  visual_review: passed
+  references:
+    - docs/evidence.md
+
+limitations:
+  - Generation and post-processing were verified in separate runs.
+  - One run turned gray part-way through. If this happens, run it again.
+
+host_changes:
+  - >-
+    WSL memory and swap are set in %UserProfile%\.wslconfig and only take effect
+    after `wsl --shutdown`, which stops every WSL distribution on the machine.

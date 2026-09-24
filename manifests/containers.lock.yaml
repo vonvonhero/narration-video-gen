@@ -1,0 +1,131 @@
+# Everything that goes into the container image, pinned.
+#
+# The custom-node commits below are not chosen from upstream HEAD -- they are
+# the commits that were actually inside the image that produced the runs in
+# docs/evidence.md, read back out of that image. Changing any of them makes a
+# different image, and the results in this repository stop applying to it.
+#
+# `latest` never appears in any documented command.
+
+schema_version: 1
+
+base_image:
+  reference: pytorch/pytorch:2.8.0-cuda12.8-cudnn9-devel
+  # Resolved 2026-08-06 for linux/amd64. Re-resolve with:
+  #   docker buildx imagetools inspect pytorch/pytorch:2.8.0-cuda12.8-cudnn9-devel
+  digest: sha256:a7103283ea7113e10ae5d014bd2342acebda0bc53164b2f7b1dd6eb7a766bdb6
+  torch: 2.8.0
+  cuda: 12.8
+  cudnn: 9
+
+musetalk:
+  base_image:
+    reference: pytorch/pytorch:2.0.1-cuda11.7-cudnn8-runtime
+    digest: sha256:82e0d379a5dedd6303c89eda57bcc434c40be11f249ddfadfd5673b84351e806
+  repository: https://github.com/TMElyralab/MuseTalk
+  commit: 0a89dec45a0192b824e3cf4daf96c239440c5ed8
+  license: MIT
+  role: optional MuseTalk 1.5 lip-sync stage; VACE face refinement always follows it
+
+# Small, separately pinned image used only by scripts/setup-linux.sh to
+# prove that Docker can access the host GPU. It is not part of the ComfyUI
+# image and it never downloads model weights.
+gpu_probe_image:
+  reference: nvidia/cuda:12.8.1-base-ubuntu24.04
+  # Resolved 2026-08-06 for linux/amd64. Re-resolve with:
+  #   docker buildx imagetools inspect nvidia/cuda:12.8.1-base-ubuntu24.04
+  digest: sha256:133c78a0575303be34164d0b90137a042172bdf60696af01a3c424ab402d86e2
+
+# WanVideoWrapper's InfiniteTalk integration consumes Wav2Vec2 intermediate
+# hidden states. Transformers 5.16 removed that output from Wav2Vec2Encoder,
+# while the pinned wrapper still requires the 5.15 API.
+python_runtime:
+  transformers: 5.15.0
+
+tts:
+  role: local-only Irodori-TTS v4.1 and Whisper review service
+  base_image:
+    reference: python:3.10-slim
+    digest_amd64: sha256:8c97ebedc32fd60935cdf5992e935753e2a0f98231830028050e1e04bd3c13c2
+  uv_image:
+    reference: ghcr.io/astral-sh/uv:0.8.15
+    digest_amd64: sha256:1ececcacbbde240ffca54d400df86e4fdd38f29c1a2366299279d197e92eaed3
+  server_repository: https://github.com/Aratako/Irodori-TTS-Server
+  server_commit: 841fb7c6ec57729c56b9b75c0ef2562249b13a10
+  irodori_repository: https://github.com/Aratako/Irodori-TTS
+  # Resolved by the upstream server's uv.lock at server_commit.
+  irodori_commit: 8ca3acb58ab4e19ad6d594aaed6bafe3e88f7f71
+  whisper_version: 20250625
+  license: MIT components; see THIRD_PARTY_NOTICES.md
+
+wsl2_allocator_workaround:
+  source: docker/vmm_rdma_interpose.c
+  source_sha256: 39300915bec8ec87b2bd5e68c986fe7a1a2ef8117c73f89ae9802b52910a7577
+  output: /opt/vmm-rdma-interpose.so
+  activation: >-
+    enabled by default under WSL2; NVG_WSL2_ALLOCATOR_WORKAROUND=0 disables
+    docker/compose.wsl2-rdma-workaround.yaml and LD_PRELOAD for validation
+  tested_torch: 2.8.0
+  tested_cuda: "12.8"
+  purpose: WSL2 compatibility guard for drivers with broken RDMA capability reporting
+
+components:
+  - name: ComfyUI
+    repository: https://github.com/comfyanonymous/ComfyUI
+    commit: 9cf91339b708a245762fa38ffeec9702b381e0db
+    license: GPL-3.0
+
+  - name: ComfyUI-WanVideoWrapper
+    repository: https://github.com/kijai/ComfyUI-WanVideoWrapper
+    commit: 088128b224242e110d3906c6750e9a3a348a659b
+    license: Apache-2.0
+    role: Wan2.1/Wan2.2 sampling, block swapping, InfiniteTalk and S2V nodes
+
+  - name: ComfyUI-KJNodes
+    repository: https://github.com/kijai/ComfyUI-KJNodes
+    commit: eb356e6cd5dedac54bb84bc54b8da8f185fa8472
+    license: GPL-3.0
+    role: image resize and utility nodes
+
+  - name: ComfyUI-VideoHelperSuite
+    repository: https://github.com/Kosinkadink/ComfyUI-VideoHelperSuite
+    commit: 4ee72c065db22c9d96c2427954dc69e7b908444b
+    license: GPL-3.0
+    role: video muxing and audio attachment
+
+  - name: ComfyUI-Frame-Interpolation
+    repository: https://github.com/Fannovel16/ComfyUI-Frame-Interpolation
+    commit: 26545cc2dd95bc3d27f056016300673bdeee78f5
+    license: MIT
+    role: RIFE interpolation to 60 fps in the Wan2.2 pipeline
+    # The node can download rife49.pth on first use. The runtime instead
+    # mounts the hashed models.lock.yaml entry before generation starts.
+    fetches_weights: true
+
+  - name: ComfyUI-segment-anything-2
+    repository: https://github.com/kijai/ComfyUI-segment-anything-2
+    commit: 0c35fff5f382803e2310103357b5e985f5437f32
+    license: Apache-2.0
+    role: SAM2 face tracking for the face detailer stage
+
+  - name: ComfyUI-GGUF
+    repository: https://github.com/city96/ComfyUI-GGUF
+    commit: 6ea2651e7df66d7585f6ffee804b20e92fb38b8a
+    license: Apache-2.0
+    role: loading the quantised Wan2.1 base model
+
+# Deliberately not installed:
+#
+#   ComfyUI-Manager -- it updates custom nodes in place. An image that can
+#   change its own contents cannot be the basis of a reproducible run.
+
+python_extras:
+  - huggingface_hub[hf_transfer]
+  - soundfile
+  - librosa
+  - faster-whisper   # ASR check that narration says what the script says
+
+published_images:
+  # Filled in at release time. Until then, build locally with
+  # `scripts/build-image.sh`, which passes every pin above as a build argument.
+  comfy: null

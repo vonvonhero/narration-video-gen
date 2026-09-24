@@ -1,0 +1,50 @@
+id: windows-wan22-480p-vram8-simulated
+schema_version: 1
+platform: windows-wsl2
+recipe: wan22-s2v-480p-q4ks
+status: acceptable
+qualification_state: staged-full-passed
+summary: Wan 2.2 480p Q4_K_S on a simulated 8 GiB GPU with 24 GiB RAM. Full length verified and reviewed.
+
+requires:
+  gpu_vram_gib_min: 8
+  physical_ram_gib_min: 24
+  host_ram_gib_min: 16
+  swap_gib_min: 48
+  free_disk_gib_min: 80
+
+settings:
+  blocks_to_swap: 40
+  offload_transformer_before_vae_decode: true
+  face_detailer_size: 320
+  face_detailer_blocks_to_swap: 40
+  encode_tiled: false
+  decode_tiled: false
+  use_non_blocking: false
+  wsl_ram_gib: 16
+  wsl_swap_gib: 48
+
+host_changes:
+  - >-
+    48 GiB of WSL swap on the Windows filesystem. Check free space on C: before
+    starting.
+  - >-
+    WSL memory and swap are set in %UserProfile%\.wslconfig and only take effect
+    after `wsl --shutdown`, which stops every WSL distribution on the machine.
+
+evidence:
+  duration_class: full
+  frames: 457
+  seconds: 28.59
+  output_fps: 60
+  pipeline_stages: [s2v, face-detailer, rife, retime]
+  gpu_evidence: capacity-simulated
+  gpu_model: NVIDIA RTX 5060 Ti with an 8192 MiB ballast allocation
+  visual_review: passed
+  execution_mode: staged-resumed-after-wsl-restart
+  references:
+    - docs/low-vram-model-policy.md
+    - docs/evidence.md
+limitations:
+  - WSL stopped once during face refinement; the run completed after resuming.
+  - Capacity-simulated; not verified on a physical 8 GiB GPU.

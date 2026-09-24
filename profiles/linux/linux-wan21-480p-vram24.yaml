@@ -1,0 +1,46 @@
+id: linux-wan21-480p-vram24
+schema_version: 1
+platform: linux
+recipe: wan21-infinitetalk-480p
+status: recommended
+summary: Wan 2.1 480p on a 24 GiB GPU without block swapping. Full length verified and reviewed.
+
+requires:
+  gpu_vram_gib_min: 24
+  host_ram_gib_min: 58
+  swap_gib_min: 0
+  free_disk_gib_min: 55
+
+settings:
+  blocks_to_swap: 0
+  face_detailer_size: 320
+  face_detailer_blocks_to_swap: 20
+  tiled_vae: false
+  use_non_blocking: false
+  rife_chunk_frames: 128
+
+evidence:
+  duration_class: full
+  frames: 457
+  seconds: 28.59
+  pipeline_stages: [infinitetalk, face-detailer, rife, retime]
+  gpu_evidence: physical
+  gpu_model: NVIDIA GeForce RTX 3090 (24 GiB)
+  visual_review: passed
+  headroom_mib: 2452
+  references:
+    - docs/evidence.md
+
+timing:
+  reference:
+    wall_clock_seconds: 1588.733
+    scope: e2e
+    environment: runpod
+  observations:
+    - wall_clock_seconds: 1588.733
+      scope: e2e
+      environment: runpod
+      thermal_class: sustained
+
+limitations:
+  - The RAM requirement is the tested machine's value, not a minimum.

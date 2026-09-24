@@ -1,0 +1,85 @@
+# Shared service definition. Do not run this file directly -- combine it with
+# the overlay for your platform:
+#
+#   docker compose -f docker/compose.yaml -f docker/compose.linux.yaml up -d
+#   docker compose -f docker/compose.yaml -f docker/compose.wsl2.yaml  up -d
+#
+# `scripts/up.sh` picks the right overlay from `narration-video-gen detect`.
+
+name: narration-video-gen
+
+services:
+  comfy:
+    build:
+      context: ..
+      dockerfile: docker/comfy.Dockerfile
+      args:
+        # Loaded from manifests/containers.lock.yaml by the wrapper scripts.
+        BASE_IMAGE: ${BASE_IMAGE:?set by scripts/lib/container-env.sh}
+        BASE_DIGEST: ${BASE_DIGEST:?set by scripts/lib/container-env.sh}
+        TRANSFORMERS_VERSION: ${TRANSFORMERS_VERSION:?set by scripts/lib/container-env.sh}
+        RUNTIME_BUILD_SHA: ${RUNTIME_BUILD_SHA:?set by scripts/lib/container-env.sh}
+        COMFYUI_COMMIT: ${COMFYUI_COMMIT:?}
+        WANVIDEOWRAPPER_COMMIT: ${WANVIDEOWRAPPER_COMMIT:?}
+        KJNODES_COMMIT: ${KJNODES_COMMIT:?}
+        VIDEOHELPER_COMMIT: ${VIDEOHELPER_COMMIT:?}
+        FRAMEINTERP_COMMIT: ${FRAMEINTERP_COMMIT:?}
+        GGUF_COMMIT: ${GGUF_COMMIT:?}
+        SAM2_COMMIT: ${SAM2_COMMIT:?}
+    image: ${COMFY_IMAGE:?set by scripts/lib/container-env.sh}
+    container_name: narration-video-gen-comfy
+    runtime: nvidia
+    environment:
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility,video
+      HF_HOME: /cache/huggingface
+      HF_HUB_ENABLE_HF_TRANSFER: "1"
+      PYTHONUNBUFFERED: "1"
+      # Block-swapped Wan workloads repeatedly grow and release large CUDA
+      # allocations. Expandable segments let PyTorch reuse that address space
+      # instead of failing with GiBs reserved but unavailable through
+      # fragmentation. The published Linux A4000 runs used this setting.
+      PYTORCH_CUDA_ALLOC_CONF: expandable_segments:True
+    volumes:
+      # Weights and inputs are read-only. A generation run has no reason to
+      # modify them, and a bug that does would invalidate every hash in
+      # manifests/models.lock.yaml.
+      - ../models:/opt/ComfyUI/models:ro
+      # Frame-Interpolation keeps RIFE checkpoints below its custom-node tree
+      # rather than ComfyUI's normal models directory.  Mount the separately
+      # locked model at the exact path the pinned node resolves.
+      - ../models/rife:/opt/ComfyUI/custom_nodes/ComfyUI-Frame-Interpolation/ckpts/rife:ro
+      - ../assets:/opt/ComfyUI/input:ro
+      - ../recipes:/opt/narration-video-gen/recipes:ro
+      - ../profiles:/opt/narration-video-gen/profiles:ro
+      - ../scripts:/opt/narration-video-gen/scripts:ro
+      # Only these two are writable.
+      - ../outputs:/opt/ComfyUI/output
+      - ../cache:/cache
+    ports:
+      # Loopback only. ComfyUI has no authentication; exposing 8188 on a LAN
+      # hands anyone on it arbitrary execution on this GPU.
+      - "127.0.0.1:8188:8188"
+    shm_size: "8gb"
+    ipc: host
+    # PID 1 must reap children. A generation process that hangs on the GPU
+    # otherwise leaves a zombie and the container cannot be stopped.
+    init: true
+    stdin_open: true
+    tty: true
+
+    # Not used, and not to be added:
+    #   privileged, cap_add, /var/run/docker.sock, network_mode: host,
+    #   device mounts beyond the NVIDIA runtime.
+
+  musetalk:
+    profiles: [musetalk]
+    build:
+      context: ..
+      dockerfile: docker/musetalk.Dockerfile
+      args:
+        MUSETALK_BASE_IMAGE: ${MUSETALK_BASE_IMAGE:?}
+        MUSETALK_BASE_DIGEST: ${MUSETALK_BASE_DIGEST:?}
+        MUSETALK_COMMIT: ${MUSETALK_COMMIT:?}
+        MUSETALK_BUILD_SHA: ${MUSETALK_BUILD_SHA:?}
+    image: ${MUSETALK_IMAGE:?}

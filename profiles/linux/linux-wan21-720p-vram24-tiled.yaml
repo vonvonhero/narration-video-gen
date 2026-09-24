@@ -1,0 +1,32 @@
+id: linux-wan21-720p-vram24-tiled
+schema_version: 1
+platform: linux
+recipe: wan21-infinitetalk-720p
+status: not-recommended
+summary: Not recommended. Tiled VAE degrades long videos. Use linux-wan21-720p-vram24 instead.
+
+requires:
+  gpu_vram_gib_min: 24
+  host_ram_gib_min: 19
+  swap_gib_min: 16
+  free_disk_gib_min: 55
+
+settings:
+  blocks_to_swap: 0
+  tiled_vae: true
+  use_non_blocking: false
+
+evidence:
+  duration_class: full
+  frames: 471
+  seconds: 29.44
+  pipeline_stages: [infinitetalk]
+  gpu_evidence: physical
+  gpu_model: NVIDIA GeForce RTX 3090 (24 GiB)
+  visual_review: failed
+  wall_clock_minutes: 64
+  references:
+    - docs/evidence.md
+
+limitations:
+  - Tiled VAE produces a grid-like pattern that builds up over a long video.

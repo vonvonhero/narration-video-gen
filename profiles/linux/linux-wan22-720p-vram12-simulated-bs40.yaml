@@ -1,0 +1,35 @@
+id: linux-wan22-720p-vram12-simulated-bs40
+schema_version: 1
+platform: linux
+recipe: wan22-s2v-720p-short-q4ks
+status: experimental
+qualification_state: planned
+summary: Wan 2.2 720p Q4_K_S candidate for 12 GiB GPUs at blocks_to_swap=40. Not yet verified.
+
+requires:
+  gpu_vram_gib_min: 12
+  host_ram_gib_min: 19
+  swap_gib_min: 32
+  free_disk_gib_min: 30
+
+settings:
+  vram_ballast_mib: 4096
+  vram_ballast_device_index: 0
+  blocks_to_swap: 40
+  offload_transformer_before_vae_decode: true
+  encode_tiled: false
+  decode_tiled: false
+  use_non_blocking: false
+
+evidence:
+  duration_class: short
+  frames: 89
+  seconds: 5.5625
+  pipeline_stages: [s2v]
+  gpu_evidence: capacity-simulated
+  gpu_model: RTX 5060 Ti physical VRAM16 with 4096 MiB ballast
+  visual_review: pending
+  calibration_state: planned
+
+limitations:
+  - Capacity-simulated candidate; not verified on a physical 12 GiB GPU.

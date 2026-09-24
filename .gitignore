@@ -1,0 +1,60 @@
+# Model weights. Never committed -- manifests/models.lock.yaml is the contract.
+/models/
+*.safetensors
+*.gguf
+*.pth
+*.ckpt
+
+# Run outputs and caches.
+/outputs/
+/cache/
+/results/
+env.json
+
+# Characters created on this machine: a portrait and a reference recording
+# that belong to whoever made them. Never committed.
+/voices/
+
+# Human run input sets. Keep the guide, never commit dropped media.
+/inputs/*
+!/inputs/README.md
+!/inputs/.gitkeep
+
+# Secrets. The repository contains no credentials and must not acquire any.
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+id_rsa*
+
+# Character assets are managed explicitly through assets/*/manifest.yaml.
+# Media is excluded by default and un-ignored file by file below, so a stray
+# copy dropped into an asset directory cannot be committed by accident.
+/assets/**/*.wav
+/assets/**/*.mp3
+/assets/**/*.flac
+/assets/**/*.png
+/assets/**/*.jpg
+/assets/**/*.jpeg
+/assets/**/*.mp4
+
+# Cleared for publication -- see ASSET_LICENSES.md.
+!/assets/characters/aoi/images/aoi-portrait-angled-01.png
+!/assets/characters/aoi/audio/aoi-narration-take3.wav
+!/assets/characters/sakura/images/sakura-portrait-seated-01.png
+!/assets/characters/sakura/audio/sakura-narration-blog.wav
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+
+# Editors and OS
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/

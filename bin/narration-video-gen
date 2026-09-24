@@ -1,0 +1,18 @@
+#!/usr/bin/env python3
+"""Entry point for the narration-video-gen CLI.
+
+Standard library only, so it runs before Docker, a virtualenv or any model
+download exists. Python 3.8 or newer.
+"""
+import sys
+from pathlib import Path
+
+if sys.version_info < (3, 8):
+    sys.exit("narration-video-gen needs Python 3.8 or newer (found %s)" % sys.version.split()[0])
+
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
+
+from narration_video_gen.cli import main  # noqa: E402
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -1,0 +1,27 @@
+id: linux-wan21-480p-vram8-simulated
+schema_version: 1
+platform: linux
+recipe: wan21-infinitetalk-480p-q4ks
+status: experimental
+qualification_state: planned
+summary: Q4_K_S candidate for low-VRAM GPUs. Not yet verified.
+
+requires:
+  gpu_vram_gib_min: 8
+  host_ram_gib_min: 32
+  swap_gib_min: 16
+  free_disk_gib_min: 55
+
+settings:
+  blocks_to_swap: 38
+  tiled_vae: false
+  use_non_blocking: false
+
+evidence:
+  duration_class: gate
+  pipeline_stages: [infinitetalk]
+  gpu_evidence: capacity-simulated
+  visual_review: pending
+  gate_reached: Q4 recipe has no qualified run on this hardware profile yet
+limitations:
+  - Not yet run with the Q4_K_S model. Block swap, RAM and swap values are starting points.

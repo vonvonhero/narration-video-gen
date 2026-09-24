@@ -1,0 +1,7 @@
+{
+  "id": "tts-cuda-bf16-model-fp32-codec",
+  "model_device": "cuda",
+  "codec_device": "cuda",
+  "model_precision": "bf16",
+  "codec_precision": "fp32"
+}

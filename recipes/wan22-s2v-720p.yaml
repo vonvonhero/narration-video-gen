@@ -1,0 +1,123 @@
+# What is generated. Hardware-dependent settings live in profiles/, never here.
+id: wan22-s2v-720p
+schema_version: 1
+model_family: wan22-s2v
+summary: >-
+  Four-stage pipeline: Wan2.2-S2V generates 1280x720 at 16 fps from a portrait
+  and an audio track, a VACE-based face detailer pass restores facial detail,
+  and RIFE interpolates the result to 60 fps.
+
+resolution: [1280, 720]
+fps: 16
+output_fps: 60
+# Keep the guided short test aligned with the 480p recipe: about 5.6 seconds.
+short_test_frames: 89
+frames: from_audio
+pipeline_stages: [s2v, face-detailer, rife, retime]
+
+s2v:
+  start_from_reference: true
+  framepack_frames: 80
+  reference_hold_frames: 3
+
+prompt:
+  positive: >-
+    The video begins from the exact reference image. The same subject speaks
+    directly to the camera with lively, natural facial expressions, natural head
+    movement, and expressive hand gestures. After the first frame, the subject is
+    free to move naturally while preserving identity, clothing, background,
+    lighting, and framing. Photorealistic live-action footage, natural skin
+    texture, fine facial detail, clear symmetrical eyes, realistic lips and teeth,
+    and temporally consistent facial identity. Stable camera, single continuous
+    shot.
+  negative: >-
+    identity drift, face morphing, changing facial proportions, waxy or plastic
+    skin, over-smoothed face, blurry facial details, flickering face, inconsistent
+    eyes, distorted lips or teeth, frozen face, expressionless face, frozen body,
+    motionless, rapid hand shaking, deformed hands, camera movement, zoom, cut,
+    painterly, illustration, CGI
+
+# Fallback for runtimes without start-from-reference.
+drop_first_frames: 3
+
+context:
+  frames: 81
+  overlap: 16
+  stride: 4
+  schedule: uniform_standard
+
+sampler:
+  steps: 4
+  cfg: 1.0
+  shift: 4.0
+  seed: 45
+  attention: sdpa
+  audio_scale: 1.0
+
+lora:
+  name: lightx2v-t2v-rank64-v2
+  strength: 1.5
+
+vae:
+  encode_tiled: false
+  decode_tiled: false
+
+# Post-stages. They consume a video file, not this model's internal state,
+# so the same block can be added to a Wan2.1 recipe unchanged -- or run on its
+# own against a video that already exists.
+postprocess:
+  face_detailer:
+    # YuNet detects the largest face in the first frame; SAM2 tracks it through
+    # the video. A custom recipe may record points instead when detection fails.
+    face_detection_score: 0.7
+    mask_expand: 12
+    mask_blur: 24.0
+    crop_size_mult: 0.75
+    vace_strength: 0.6
+    sam_precision: fp16
+    positive_prompt: >-
+      The same subject's face. Preserve exact identity, facial proportions, skin
+      tone, original expression, and speaking mouth shape. Natural skin texture,
+      precise stable eyes, eyebrows, lips and teeth, photorealistic, sharp but
+      natural facial detail.
+    negative_prompt: >-
+      identity change, different person, changed expression, lip shape drift,
+      lip sync error, plastic skin, oversharpening, flicker, shimmer, deformed
+      face, asymmetrical eyes, blur, low quality, jpeg artifacts
+    # Measured ceiling for this stage, enforced with a cgroup limit so a
+    # runaway pass fails on its own instead of taking the host with it.
+    host_ram_gib_max: 19
+    host_ram_plus_swap_gib_max: 39
+
+  rife:
+    model: rife49
+    # RIFE only doubles or quadruples: 16 fps x4 = 64 fps.
+    multiplier: 4
+
+  retime:
+    # 60 fps is not an integer multiple of 16, so it is reached by resampling
+    # the 64 fps result in ffmpeg rather than by interpolating again. The audio
+    # is taken from the pre-RIFE video and the output cut to its measured
+    # length -- see docs/pipeline.md for why both matter.
+    target_fps: 60
+
+models:
+  - wan22-s2v-14b-fp8
+  - wan22-t2v-a14b-low-fp8
+  - wan22-fun-vace-a14b-low-fp8
+  - wan21-vae-bf16
+  - umt5-xxl-enc-fp8
+  - lightx2v-t2v-rank64-v2
+  - wav2vec2-large-english-fp16
+  - sam2.1-hiera-small
+  - yunet-face-detector
+  - rife49
+
+inputs:
+  image: portrait image, resized to 1280x720
+  audio: mono PCM WAV
+
+output:
+  container: mp4
+  video_codec: h264
+  audio_present: true

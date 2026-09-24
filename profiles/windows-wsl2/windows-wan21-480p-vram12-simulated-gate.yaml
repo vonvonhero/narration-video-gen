@@ -1,0 +1,33 @@
+id: windows-wan21-480p-vram12-simulated-gate
+schema_version: 1
+platform: windows-wsl2
+recipe: wan21-infinitetalk-480p
+status: not-recommended
+summary: Not recommended. A capacity check that stopped part-way; no video was produced.
+
+requires:
+  gpu_vram_gib_min: 12
+  physical_ram_gib_min: 32
+  host_ram_gib_min: 20
+  swap_gib_min: 16
+  free_disk_gib_min: 55
+
+settings:
+  blocks_to_swap: 27
+  tiled_vae: true
+  use_non_blocking: false
+  wsl_ram_gib: 20
+  wsl_swap_gib: 32
+
+evidence:
+  duration_class: gate
+  pipeline_stages: [infinitetalk]
+  gpu_evidence: capacity-simulated
+  gpu_model: NVIDIA RTX A4000 constrained to 12 GiB by a VRAM ballast
+  visual_review: pending
+  gate_reached: first context window completed, second window entered
+  references:
+    - docs/evidence.md
+
+limitations:
+  - Uses tiled VAE, which degrades long videos.

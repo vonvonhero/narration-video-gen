@@ -1,0 +1,30 @@
+id: linux-wan22-480p-vram8-simulated
+schema_version: 1
+platform: linux
+recipe: wan22-s2v-480p-q4ks
+status: experimental
+qualification_state: planned
+summary: Q4_K_S candidate for low-VRAM GPUs. Not yet verified.
+
+requires:
+  gpu_vram_gib_min: 8
+  host_ram_gib_min: 19
+  swap_gib_min: 20
+  free_disk_gib_min: 80
+
+settings:
+  blocks_to_swap: 40
+  encode_tiled: false
+  decode_tiled: false
+  use_non_blocking: false
+  face_detailer_ram_gib: 19
+  face_detailer_ram_swap_gib: 39
+
+evidence:
+  duration_class: gate
+  pipeline_stages: [s2v]
+  gpu_evidence: capacity-simulated
+  visual_review: pending
+  gate_reached: Q4 recipe has no qualified run on this hardware profile yet
+limitations:
+  - Not yet run with the Q4_K_S model. Block swap, RAM and swap values are starting points.

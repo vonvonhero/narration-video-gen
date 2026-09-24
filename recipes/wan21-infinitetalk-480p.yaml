@@ -1,0 +1,125 @@
+# What is generated. Hardware-dependent settings live in profiles/, never here.
+id: wan21-infinitetalk-480p
+schema_version: 1
+model_family: wan21-infinitetalk
+summary: >-
+  Wan2.1 InfiniteTalk generates 832x480 video, VACE restores facial detail,
+  and RIFE produces the final 60 fps output.
+
+resolution: [832, 480]
+fps: 16
+output_fps: 60
+# The guided short test is about 5.6 seconds and crosses the first
+# autoregressive continuation boundary.
+short_test_frames: 89
+# InfiniteTalk is autoregressive: it processes `window` frames per step and
+# advances by `window - motion_frames`. Frame count is derived from the audio
+# length and rounded up to Wan's 4n+1 latent packing constraint.
+frames: from_audio
+pipeline_stages: [infinitetalk, face-detailer, rife, retime]
+pipeline_options:
+  musetalk:
+    pipeline_stages: [infinitetalk, musetalk, face-detailer, rife, retime]
+    models:
+      - musetalk-v15-unet
+      - musetalk-v15-config
+      - musetalk-whisper-tiny-model
+      - musetalk-whisper-tiny-config
+      - musetalk-whisper-tiny-preprocessor
+      - musetalk-sd-vae-model
+      - musetalk-sd-vae-config
+      - musetalk-dwpose
+      - musetalk-face-parse
+      - musetalk-face-parse-resnet18
+    postprocess:
+      musetalk:
+        bbox_shift: 0
+        output_fps: 25
+window: 49
+motion_frames: 9
+
+prompt:
+  positive: >-
+    The same subject as in the reference image speaks directly to the camera with
+    lively, natural facial expressions, natural head and upper-body movement, and
+    expressive hand gestures. Preserve the subject's identity, appearance,
+    clothing, background, lighting, and framing. Photorealistic live-action
+    footage, natural skin texture, stable facial detail, realistic lips and teeth,
+    stable camera, single continuous shot.
+  negative: >-
+    identity drift, face morphing, changing facial proportions, waxy or plastic
+    skin, over-smoothed face, blurry facial details, flickering face, inconsistent
+    eyes, distorted lips or teeth, frozen face, expressionless face, frozen body,
+    motionless, rapid hand shaking, deformed hands, camera movement, zoom, cut,
+    painterly, illustration, CGI
+
+sampler:
+  steps: 6
+  cfg: 1.0
+  shift: 11.0
+  seed: 12345
+  scheduler: dpm++_sde
+  attention: sdpa
+  base_precision: fp16_fast
+  audio_cfg_scale: 1.0
+
+# The LightX2V step-distillation LoRA is what makes 6 steps sufficient. The GGUF
+# base cannot merge LoRAs, so it is always applied at load time.
+lora:
+  name: lightx2v-i2v-480p-rank64
+  strength: 1.0
+  merge: false
+
+postprocess:
+  face_detailer:
+    face_detection_score: 0.7
+    mask_expand: 12
+    mask_blur: 24.0
+    crop_size_mult: 0.75
+    vace_strength: 0.6
+    sam_precision: fp16
+    positive_prompt: >-
+      The same subject's face. Preserve exact identity, facial proportions, skin
+      tone, original expression, and speaking mouth shape. Natural skin texture,
+      precise stable eyes, eyebrows, lips and teeth, photorealistic, sharp but
+      natural facial detail.
+    negative_prompt: >-
+      identity change, different person, changed expression, lip shape drift,
+      lip sync error, plastic skin, oversharpening, flicker, shimmer, deformed
+      face, asymmetrical eyes, blur, low quality, jpeg artifacts
+    host_ram_gib_max: 19
+    host_ram_plus_swap_gib_max: 39
+  rife:
+    model: rife49
+    multiplier: 4      # 16 fps x4 = 64 fps
+  retime:
+    target_fps: 60     # resampled from 64 in ffmpeg; RIFE cannot reach it
+
+models:
+  - wan21-i2v-14b-480p-q6k
+  - infinitetalk-single-q8
+  - wan21-vae-bf16
+  - umt5-xxl-enc-fp8
+  - clip-vision-h
+  - lightx2v-i2v-480p-rank64
+  - wav2vec2-chinese-base-fp16
+  - wan22-t2v-a14b-low-fp8
+  - wan22-fun-vace-a14b-low-fp8
+  - lightx2v-t2v-rank64-v2
+  - sam2.1-hiera-small
+  - yunet-face-detector
+  - rife49
+
+inputs:
+  image: portrait image, resized to 832x480 with centre crop, divisible by 16
+  audio: mono PCM WAV; 48 kHz is what the reference runs used
+
+output:
+  container: mp4
+  video_codec: h264
+  pix_fmt: yuv420p
+  crf: 10
+  audio_present: true
+  # trim_to_audio cuts the generated video back to the audio length. Stream-copy
+  # packet boundaries leave a few frames of slack; `narration-video-gen verify` tolerates 4.
+  trim_to_audio: true

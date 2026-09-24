@@ -1,0 +1,39 @@
+# Face Detailer settings are independent from the primary generator's
+# block-swap calibration. Values include operational headroom above the
+# observed pass boundary on the named VRAM tier.
+schema_version: 1
+id: face-detailer-profiles-v1
+profiles:
+  - id: wan21-720p-face-detailer-vram24
+    scenario: wan21-720p
+    gpu_vram_gib: 24
+    status: qualified
+    settings:
+      face_detailer_size: 512
+      # 12 reached the sampler but missed a 1.12 GiB allocation with 1.10 GiB
+      # free on the RTX 3090 Full run. 16 completed the full 457-frame stage,
+      # and 20 keeps four additional swapped blocks as operational margin.
+      face_detailer_blocks_to_swap: 20
+  - id: wan22-720p-face-detailer-vram24
+    scenario: wan22-720p
+    gpu_vram_gib: 24
+    status: qualified
+    settings:
+      face_detailer_size: 512
+      face_detailer_blocks_to_swap: 20
+  - id: wan21-720p-face-detailer-vram32-provisional
+    scenario: wan21-720p
+    gpu_vram_gib: 32
+    status: provisional
+    settings:
+      face_detailer_size: 512
+      # Extrapolated starting point only; qualify on a physical 32 GiB GPU.
+      face_detailer_blocks_to_swap: 4
+  - id: wan22-720p-face-detailer-vram32-provisional
+    scenario: wan22-720p
+    gpu_vram_gib: 32
+    status: provisional
+    settings:
+      face_detailer_size: 512
+      # Extrapolated starting point only; qualify on a physical 32 GiB GPU.
+      face_detailer_blocks_to_swap: 4

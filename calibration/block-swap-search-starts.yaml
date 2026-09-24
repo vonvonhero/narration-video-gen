@@ -1,0 +1,31 @@
+# Provisional starting points for the cost-aware block-swap search.
+#
+# These values choose attempt order; they are not accepted as capacity evidence.
+# A passing start walks downward and an OOM start walks upward, so an inaccurate
+# hint cannot hide a lower viable value.  Prefer the largest reproducible OOM
+# for the same scenario and VRAM tier; when that is unavailable, start three
+# blocks below the current stable/reference value.
+#
+# A GPU between tiers uses the next larger tier, deliberately biasing the first
+# attempt toward OOM rather than an unnecessarily slow high-swap pass.
+schema_version: 1
+id: block-swap-search-starts-v1
+above_max_vram_blocks_to_swap: 0
+tiers:
+  # vram | Wan 2.1 480p | Wan 2.1 720p | Wan 2.2 480p | Wan 2.2 720p
+  - vram_gib: 6
+    starts: {wan21-480p: 40, wan21-720p: 40, wan22-480p: 40, wan22-720p: 40}
+  - vram_gib: 8
+    starts: {wan21-480p: 35, wan21-720p: 40, wan22-480p: 37, wan22-720p: 40}
+  - vram_gib: 10
+    starts: {wan21-480p: 30, wan21-720p: 40, wan22-480p: 33, wan22-720p: 40}
+  - vram_gib: 12
+    starts: {wan21-480p: 24, wan21-720p: 36, wan22-480p: 30, wan22-720p: 37}
+  - vram_gib: 16
+    starts: {wan21-480p: 12, wan21-720p: 25, wan22-480p: 22, wan22-720p: 28}
+  - vram_gib: 20
+    starts: {wan21-480p: 5, wan21-720p: 11, wan22-480p: 15, wan22-720p: 22}
+  - vram_gib: 24
+    starts: {wan21-480p: 0, wan21-720p: 0, wan22-480p: 7, wan22-720p: 14}
+  - vram_gib: 32
+    starts: {wan21-480p: 0, wan21-720p: 0, wan22-480p: 0, wan22-720p: 0}

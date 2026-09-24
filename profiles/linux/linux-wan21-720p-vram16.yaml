@@ -1,0 +1,49 @@
+id: linux-wan21-720p-vram16
+schema_version: 1
+platform: linux
+recipe: wan21-infinitetalk-720p
+status: recommended
+summary: Wan 2.1 720p on a 16 GiB GPU. Full length verified and reviewed. About three times slower than 480p.
+
+requires:
+  gpu_vram_gib_min: 16
+  host_ram_gib_min: 19
+  swap_gib_min: 32
+  free_disk_gib_min: 55
+
+settings:
+  blocks_to_swap: 28
+  face_detailer_size: 384
+  face_detailer_blocks_to_swap: 30
+  tiled_vae: false
+  use_non_blocking: false
+  rife_chunk_frames: 64
+
+evidence:
+  duration_class: full
+  frames: 471
+  seconds: 29.44
+  pipeline_stages: [infinitetalk]
+  gpu_evidence: physical
+  gpu_model: NVIDIA RTX A4000 (16 GiB)
+  visual_review: passed
+  wall_clock_minutes: 213
+  headroom_mib: 409
+  references:
+    - docs/evidence.md
+
+timing:
+  reference:
+    wall_clock_seconds: 8840.996
+    scope: e2e
+    environment: runpod
+    stage_minutes: {infinitetalk: 133.8, face-detailer: 10.2, rife: 3.1, retime: 0.1}
+  observations:
+    - wall_clock_seconds: 8840.996
+      scope: e2e
+      environment: runpod
+      thermal_class: sustained
+
+limitations:
+  - About 410 MiB of VRAM is left free. Close other programs that use the GPU.
+  - Generation and post-processing were verified in separate runs.

@@ -1,0 +1,35 @@
+# Fixed media and workflows for local block-swap calibration.
+# Hardware values live in named profile hypotheses, never in this scenario file.
+schema_version: 2
+id: standard-v2
+input:
+  image: assets/characters/aoi/images/aoi-portrait-angled-01.png
+  audio: assets/characters/aoi/audio/aoi-narration-take3.wav
+calibration:
+  candidate_profile_set: calibration/block-swap-candidates.yaml
+  search_start_table: calibration/block-swap-search-starts.yaml
+  stable_passes: 3
+  boundary_failure_passes: 2
+  selection_safety_margin_blocks: 3
+  # bs=0 selection uses three-block Short headroom from this per-block table.
+  zero_swap_block_margin_table: calibration/zero-swap-block-margin.yaml
+  face_detailer_profile_set: calibration/face-detailer-profiles.yaml
+  downward_probe_step: 4
+  late_oom_seconds: 300
+scenarios:
+  - id: wan21-480p
+    profile: linux-wan21-480p-vram16
+    short_repeats: 3
+    full_repeats: 1
+  - id: wan21-720p
+    profile: linux-wan21-720p-vram16
+    short_repeats: 3
+    full_repeats: 1
+  - id: wan22-480p
+    profile: linux-wan22-480p-vram16
+    short_repeats: 3
+    full_repeats: 1
+  - id: wan22-720p
+    profile: linux-wan22-720p-vram16
+    short_repeats: 3
+    full_repeats: 1

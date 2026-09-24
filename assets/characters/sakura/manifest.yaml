@@ -1,0 +1,76 @@
+# See assets/characters/aoi/manifest.yaml for the field semantics.
+
+schema_version: 1
+character: sakura
+owner: repository author
+summary: >-
+  Sakura is a synthetic character: an AI-generated portrait paired with
+  AI-synthesised narration. No real person's likeness or voice is involved.
+
+assets:
+  - asset_id: sakura-portrait-seated-01
+    role: video_reference_image
+    path: images/sakura-portrait-seated-01.png
+    sha256: e7bde14461941048c982cb1a0937bea3eb981b14896d0620c81015f4f7657d07
+    bytes: 1832837
+    media_type: image/png
+    dimensions: [1672, 941]
+    provenance:
+      kind: ai-generated
+      service: GPT Image 2 (OpenAI)
+      created: "2026-07-29"
+      prompt: not recorded
+      # Derived from an earlier AI-generated character sheet of the same character.
+      source_assets:
+        - Sakura character sheet, the author's own AI-generated work, not published here
+    rights:
+      holder: repository author
+      license: >-
+        Owned by the repository author under the OpenAI Terms of Use, which
+        assign ownership of Output to the user. Redistributed here under this
+        repository's terms.
+      service_terms_url: https://openai.com/policies/row-terms-of-use/
+      redistributable: true
+      checked: "2026-08-06"
+    review:
+      state: adopted
+      notes: Portrait for the Sakura character.
+
+  - asset_id: sakura-narration-blog
+    role: narration_audio
+    path: audio/sakura-narration-blog.wav
+    sha256: 3055ab1dee7e0dfe3b7a705b11d1de840083d7df85a83df53c2e1489a263820c
+    bytes: 2560364
+    media_type: audio/wav
+    audio:
+      sample_format: pcm_s16le
+      sample_rate: 48000
+      channels: 1
+      duration_seconds: 26.67
+    provenance:
+      kind: ai-generated
+      recipe: tts-irodori-v3
+      model: Aratako/Irodori-TTS-600M-v3-VoiceDesign
+      checkpoint_revision: e863a3a93e652e09afeff3e84823a206a0a60314
+      take_id: blog
+      seed: 88888
+      duration_scale: 1.0
+      reference_audio: synthetic clip generated with --no-ref (not published)
+      reference_audio_kind: ai-generated
+      human_voice_in_chain: false
+      # Synthesised per sentence and joined with measured gaps rather than in
+      # one pass, because a single long synthesis drifts in timbre.
+      assembly: per-sentence synthesis, joined with tuned inter-sentence gaps
+      watermark: silentcipher
+    rights:
+      holder: repository author
+      license: Owned by the repository author; model output under MIT-licensed weights
+      model_license: MIT
+      model_license_url: https://huggingface.co/Aratako/Irodori-TTS-600M-v3-VoiceDesign
+      human_voice: false
+      consent_record: not applicable (no human speaker at any point in the chain)
+      redistributable: true
+      checked: "2026-08-06"
+    review:
+      state: adopted
+      notes: Narration for the Sakura character.

@@ -1,0 +1,13 @@
+# Optional overlay that caps container memory.
+#
+# Use it for the Wan2.2 face detailer stage, whose ceiling was measured rather
+# than guessed (19 GiB RAM, 39 GiB RAM+swap). Without a cap, a stage that
+# exceeds its budget takes the host down with it instead of failing on its own.
+#
+#   FD_MEM=19g FD_MEMSWAP=39g docker compose \
+#     -f docker/compose.yaml -f docker/compose.linux.yaml \
+#     -f docker/compose.limits.yaml up -d
+services:
+  comfy:
+    mem_limit: ${FD_MEM:-19g}
+    memswap_limit: ${FD_MEMSWAP:-39g}

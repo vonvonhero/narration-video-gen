@@ -1,0 +1,8 @@
+{
+  "aoi": {
+    "ref_wav": "characters/aoi/audio/aoi-narration-take3.wav"
+  },
+  "sakura": {
+    "ref_wav": "characters/sakura/audio/sakura-narration-blog.wav"
+  }
+}

@@ -1,0 +1,49 @@
+id: linux-wan22-720p-vram24
+schema_version: 1
+platform: linux
+recipe: wan22-s2v-720p
+status: recommended
+summary: Wan 2.2 720p on a 24 GiB GPU. Full length verified and reviewed.
+
+requires:
+  gpu_vram_gib_min: 24
+  host_ram_gib_min: 58
+  swap_gib_min: 0
+  free_disk_gib_min: 80
+
+settings:
+  blocks_to_swap: 11
+  face_detailer_size: 512
+  face_detailer_blocks_to_swap: 20
+  encode_tiled: false
+  decode_tiled: false
+  offload_transformer_before_vae_decode: false
+  use_non_blocking: false
+  rife_chunk_frames: 64
+
+evidence:
+  duration_class: full
+  frames: 457
+  seconds: 28.59
+  pipeline_stages: [s2v, face-detailer, rife, retime]
+  gpu_evidence: physical
+  gpu_model: NVIDIA GeForce RTX 3090 (24 GiB)
+  visual_review: passed
+  headroom_mib: 456
+  references:
+    - docs/evidence.md
+
+timing:
+  reference:
+    wall_clock_seconds: 4341.371
+    scope: e2e
+    environment: runpod
+    stage_minutes: {s2v: 58.3, face-detailer: 12.4, rife: 1.4, retime: 0.1}
+  observations:
+    - wall_clock_seconds: 4341.371
+      scope: e2e
+      environment: runpod
+      thermal_class: sustained
+
+limitations:
+  - The RAM requirement is the tested machine's value, not a minimum.

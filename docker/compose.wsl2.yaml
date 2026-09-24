@@ -1,0 +1,11 @@
+# Windows + WSL2 overlay.
+#
+# Under WSL2 the container's memory ceiling is whatever .wslconfig gave the
+# distribution, and the host's page cache behaves differently from a native
+# Linux host. Two consequences are encoded here.
+# WSL2 stores its swap in a file on the Windows filesystem. Writes through it
+# are slower than native swap, so profiles do not assume host swap is cheap.
+# The allocator compatibility overlay lives in
+# compose.wsl2-rdma-workaround.yaml. scripts/up.sh enables it by default under
+# WSL2 and supports an explicit opt-out for validation.
+services: {}

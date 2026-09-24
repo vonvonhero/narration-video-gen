@@ -1,0 +1,86 @@
+# Local narration synthesis. The video pipeline consumes only the completed WAV.
+id: tts-irodori-v4.1
+schema_version: 1
+model_family: irodori-tts
+kind: audio
+summary: >-
+  Local Japanese narration synthesis with Irodori-TTS v4.1 Small. Text is
+  generated in stable parts, checked, reviewed in a local browser, and joined
+  with editable pauses. Video generation receives only the completed WAV.
+
+tts_model_version: v4.1
+checkpoint:
+  repository: Aratako/Irodori-TTS-v4.1-Small
+  revision: 2b28324dc263ed5e6638b3cf3dd94c82ead07b4b
+code:
+  server_repository: https://github.com/Aratako/Irodori-TTS-Server
+  server_commit: 841fb7c6ec57729c56b9b75c0ef2562249b13a10
+  irodori_repository: https://github.com/Aratako/Irodori-TTS
+  irodori_commit: 8ca3acb58ab4e19ad6d594aaed6bafe3e88f7f71
+codec:
+  repository: Aratako/Semantic-DACVAE-Japanese-32dim
+  revision: 47376ee24834d7a05a48ebabfe3cde29b3c5e214
+
+execution:
+  location: local_only
+  device: auto_gpu_then_cpu
+  backend: isolated_docker_service
+  endpoint: http://127.0.0.1:8088
+
+output:
+  sample_format: pcm_s16le
+  sample_rate: 48000
+  channels: 1
+  watermark: silentcipher
+
+synthesis:
+  mode: per_part
+  requires_fixed_seed: true
+  minimum_part_characters: 24
+  maximum_part_characters: 90
+  outro_ms: 1500
+
+quality_gates:
+  - per-part duration and waveform review flags
+  - optional per-part ASR comparison against the script
+  - mandatory human listening pass per part
+  - mandatory human listening pass after joining
+
+notes:
+  - >-
+    References bundled here are synthetic Irodori-TTS narrations. Do not replace
+    them with a real person's voice without explicit consent and provenance.
+
+# Reference voice design: one synthesis per design seed.
+voice_design:
+  mode: synthetic_reference
+  reference: assets/characters/aoi/audio/aoi-narration-take3.wav
+  reference_sha256: 9bab2ef19dc52de5764f698aab75e8a116c29c921f9151b2a75bdffcfecc8699
+  passage: こんにちは。今日は、この声で話す練習をしています。いち、に、さん、し、ご。経験、状況、必要、確認。最後まで聞いてくれて、ありがとうございました。
+  sampling:
+    chunking_enabled: false
+    num_steps: 40
+    cfg_scale_text: 3.0
+    cfg_scale_caption: 3.0
+    cfg_scale_speaker: 5.0
+    cfg_guidance_mode: independent
+    cfg_min_t: 0.5
+    cfg_max_t: 1.0
+    t_schedule_mode: linear
+    duration_scale: 1.0
+
+# Voice design from a text description only; listen to the result before use.
+voice_design_no_ref:
+  mode: no_ref
+  passage: 本日はお越しいただき、誠にありがとうございます。どうぞごゆっくりお過ごしください。
+  sampling:
+    chunking_enabled: false
+    num_steps: 40
+    cfg_scale_text: 3.0
+    cfg_scale_caption: 3.0
+    cfg_scale_speaker: 5.0
+    cfg_guidance_mode: independent
+    cfg_min_t: 0.5
+    cfg_max_t: 1.0
+    t_schedule_mode: linear
+    duration_scale: 1.0

@@ -1,0 +1,45 @@
+# Main-stage-only Q4_K_S recipe used by low-VRAM capacity tests.
+id: wan22-s2v-480p-short-q4ks
+schema_version: 1
+model_family: wan22-s2v
+summary: Q4_K_S 480p S2V-only recipe for capacity, speed and visual evaluation.
+resolution: [832, 480]
+fps: 16
+output_fps: 16
+short_test_frames: 89
+frames: from_audio
+pipeline_stages: [s2v]
+s2v:
+  start_from_reference: true
+  framepack_frames: 80
+  reference_hold_frames: 3
+  quantization: disabled
+prompt:
+  positive: >-
+    The video begins from the exact reference image. The same subject speaks
+    directly to the camera with lively, natural facial expressions, natural head
+    movement, and expressive hand gestures. After the first frame, the subject is
+    free to move naturally while preserving identity, clothing, background,
+    lighting, and framing. Photorealistic live-action footage, natural skin
+    texture, fine facial detail, clear symmetrical eyes, realistic lips and teeth,
+    and temporally consistent facial identity. Stable camera, single continuous
+    shot.
+  negative: >-
+    identity drift, face morphing, changing facial proportions, waxy or plastic
+    skin, over-smoothed face, blurry facial details, flickering face, inconsistent
+    eyes, distorted lips or teeth, frozen face, expressionless face, frozen body,
+    motionless, rapid hand shaking, deformed hands, camera movement, zoom, cut,
+    painterly, illustration, CGI
+drop_first_frames: 3
+context: {frames: 81, overlap: 16, stride: 4, schedule: uniform_standard}
+sampler: {steps: 4, cfg: 1.0, shift: 4.0, seed: 45, attention: sdpa, audio_scale: 1.0}
+lora: {name: lightx2v-t2v-rank64-v2, strength: 1.5}
+vae: {encode_tiled: false, decode_tiled: false}
+models:
+  - wan22-s2v-14b-q4ks
+  - wan21-vae-bf16
+  - umt5-xxl-enc-fp8
+  - lightx2v-t2v-rank64-v2
+  - wav2vec2-large-english-fp16
+inputs: {image: portrait image resized to 832x480, audio: mono PCM WAV}
+output: {container: mp4, video_codec: h264, audio_present: true}

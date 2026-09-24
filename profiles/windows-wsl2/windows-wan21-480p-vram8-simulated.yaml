@@ -1,0 +1,38 @@
+id: windows-wan21-480p-vram8-simulated
+schema_version: 1
+platform: windows-wsl2
+recipe: wan21-infinitetalk-480p-q4ks
+status: experimental
+qualification_state: inferred
+summary: Wan 2.1 480p Q4_K_S candidate for 8 GiB GPUs, based on the Wan 2.2 result. Not yet verified.
+
+requires:
+  gpu_vram_gib_min: 8
+  physical_ram_gib_min: 24
+  host_ram_gib_min: 16
+  swap_gib_min: 48
+  free_disk_gib_min: 55
+
+settings:
+  blocks_to_swap: 40
+  tiled_vae: false
+  use_non_blocking: false
+  wsl_ram_gib: 16
+  wsl_swap_gib: 48
+
+host_changes:
+  - >-
+    48 GiB of WSL swap on the Windows filesystem. Check free space on C: before
+    starting.
+  - >-
+    WSL memory and swap are set in %UserProfile%\.wslconfig and only take effect
+    after `wsl --shutdown`, which stops every WSL distribution on the machine.
+
+evidence:
+  duration_class: gate
+  pipeline_stages: [infinitetalk]
+  gpu_evidence: capacity-simulated
+  visual_review: pending
+  gate_reached: Untested Q4 candidate inferred from Wan2.2 RAM24 staged full success, not measured Wan2.1 evidence
+limitations:
+  - RAM and swap values are taken from the Wan 2.2 configuration.

@@ -230,6 +230,14 @@ try {
             $script:capturedWslEnv -eq "EXISTING/u:NVG_UPDATE_STAGE/p" -and
             $script:capturedCopyCommand -match "base64 -d \| bash") `
         "The Windows staging path was not passed through WSLENV"
+    $copyCommandMatch = [regex]::Match(
+        $script:capturedCopyCommand, '^printf %s ([A-Za-z0-9+/=]+) \| base64')
+    Assert ($copyCommandMatch.Success) "The staged Bash payload was not encoded"
+    $decodedCopyScript = [Text.Encoding]::UTF8.GetString(
+        [Convert]::FromBase64String($copyCommandMatch.Groups[1].Value))
+    Assert (-not $decodedCopyScript.Contains("`r") -and
+            $decodedCopyScript.Contains('repo="$HOME/narration-video-gen"')) `
+        "The staged Bash payload retained Windows CRLF line endings"
     Assert ($env:WSLENV -eq "EXISTING/u" -and
             -not (Test-Path Env:NVG_UPDATE_STAGE)) `
         "The staging environment was not restored"

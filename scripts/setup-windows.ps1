@@ -497,6 +497,7 @@ cp -- "$repo/cleanup.cmd" "$stage/file-1"
 cp -- "$repo/scripts/setup-windows.ps1" "$stage/file-2"
 cp -- "$repo/scripts/cleanup-windows.ps1" "$stage/file-3"
 '@
+        $copyScript = $copyScript.Replace("`r", "")
         $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($copyScript))
         Invoke-Wsl $Distro ("printf %s {0} | base64 -d | bash" -f $encoded)
         return $script:WslExitCode -eq 0

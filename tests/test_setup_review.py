@@ -199,6 +199,27 @@ try {
     Assert ((Get-Wsl2Setting "swap") -eq "96GB") "Existing larger swap allocation was reduced"
     Assert (([regex]::Matches($content, '(?m)^memory=')).Count -eq 1) "Missing memory setting was written more than once"
 
+    function wsl.exe {
+        param([Parameter(ValueFromRemainingArguments=$true)]$Arguments)
+        $global:LASTEXITCODE = 0
+        '{"profile":{"id":"windows-wan22-720p-vram16"},"recipe":{"resolution":[1280,720]},"host_setup":{"wsl_ram_gib":16,"wsl_swap_gib":48,"current_ram_gib":19.5,"current_swap_gib":32}}'
+    }
+    $request = Get-PendingPlanWslSetup "Ubuntu-24.04"
+    Assert ($request.ProfileId -eq "windows-wan22-720p-vram16" -and
+            $request.Resolution -eq 720 -and $request.SwapGiB -eq 48) `
+        "The selected 720p setup request was not parsed"
+    Set-Content $WslConfigPath "[wsl2]`nmemory=20GB`nswap=32GB"
+    function Confirm-Action { return $false }
+    Assert (-not (Apply-PendingPlanWslSetup "Ubuntu-24.04" $request)) `
+        "A declined 720p upgrade was applied"
+    Assert ((Get-Wsl2Setting "swap") -eq "32GB") "Declining changed the WSL swap"
+    function Confirm-Action { return $true }
+    function Stop-DockerDesktopForWslShutdown { return $true }
+    function Get-DockerDesktopExecutable { return $null }
+    Assert (Apply-PendingPlanWslSetup "Ubuntu-24.04" $request) `
+        "An approved 720p upgrade failed"
+    Assert ((Get-Wsl2Setting "swap") -eq "48GB") "The 720p upgrade did not set 48 GiB swap"
+
     $script:answers = [Collections.Generic.Queue[string]]::new()
     foreach ($answer in @("invalid", "", " 1 ")) { $script:answers.Enqueue($answer) }
     function Read-Host { param($Prompt) return $script:answers.Dequeue() }

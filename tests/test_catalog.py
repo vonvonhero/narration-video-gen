@@ -485,7 +485,8 @@ def test_selection_prefers_the_right_profile(catalog):
 def test_interactive_selection_and_temporary_state(catalog):
     section("guided selection state")
     from narration_video_gen.catalog import CatalogError
-    from narration_video_gen.cli import (_interactive_plan_profile, _interactive_plan_target,
+    from narration_video_gen.cli import (_choose_plan_recipe_options,
+                                 _interactive_plan_profile, _interactive_plan_target,
                                  _interactive_select_request,
                                  _normalise_model_family, _resolve_profile)
 
@@ -539,6 +540,33 @@ def test_interactive_selection_and_temporary_state(catalog):
     check("480p  [生成可能・確認済み]" in wan21_windows_rendered
           and "720p  [生成可能・未確認]" in wan21_windows_rendered,
           "resolution choices distinguish verified generation from explicit blockers")
+
+    windows_swap32 = dict(
+        windows_environment,
+        memory={"ram_gib": 19.5, "swap_gib": 32},
+    )
+    setup_answers = iter(("2", "2"))
+    setup_output = StringIO()
+    with tempfile.TemporaryDirectory() as directory:
+        setup_root = Path(directory)
+        setup_profile, cancelled = _interactive_plan_profile(
+            catalog, windows_swap32, setup_root,
+            input_fn=lambda _prompt: next(setup_answers), output=setup_output)
+        setup_args = SimpleNamespace(
+            root=setup_root, lip_sync_enhancement=None, face_detailer=None,
+            frame_interpolation=None, check=False, json=False)
+        setup_options = _choose_plan_recipe_options(
+            catalog, setup_profile, setup_args, interactive=False)
+        saved_setup = selection_state.load(setup_root)
+        check(not cancelled
+              and setup_profile["id"] == "windows-wan22-720p-vram16"
+              and setup_options == ["face-detailer-on"]
+              and saved_setup["host_setup"]["wsl_swap_gib"] == 48
+              and saved_setup["host_setup"]["current_swap_gib"] == 32,
+              "Windows keeps a 720p choice that only needs a WSL resource upgrade")
+    check("720p  [runnable after setup; verified" in setup_output.getvalue()
+          and "This configuration needs a WSL resource change" in setup_output.getvalue(),
+          "the guided plan labels swap-remediable 720p instead of unavailable")
     locale_environment = {
         name: os.environ.get(name)
         for name in ("LC_ALL", "NVG_CONFIG_HOME", "NVG_UI_LANGUAGE")
@@ -1522,6 +1550,12 @@ def test_windows_setup_is_guided_and_safe():
           and 'Confirm-Action ".wslconfigを動画生成用に更新しますか？"' in text
           and 'Confirm-Action "wsl --shutdownを実行しますか？"' in text,
           "video setup can back up and prepare global WSL resources with separate confirmations")
+    check("Get-PendingPlanWslSetup" in text
+          and "Apply-PendingPlanWslSetup" in text
+          and "720p用WSL設定" in text
+          and '.wslconfigのswapを$($Request.SwapGiB)GBへ増やしますか？' in text
+          and "plan --profile {1}" in text,
+          "the Windows menu offers and applies the selected 720p swap upgrade")
     check("scripts/setup-linux.sh --check" in text
           and "scripts/setup-linux.sh --test-gpu --yes" in text,
           "the wizard reuses shared diagnosis and the pinned GPU probe")

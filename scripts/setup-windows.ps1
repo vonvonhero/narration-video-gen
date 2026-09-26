@@ -189,7 +189,14 @@ function Show-VideoMenu([string]$Distro, [int]$ProgressColumns) {
                 Invoke-Wsl $Distro `
                     ('cd "$HOME/narration-video-gen" && COLUMNS={0} NVG_DOWNLOAD_PROGRESS=inline ./bin/narration-video-gen plan' -f $ProgressColumns)
                 if ($script:WslExitCode -ne 0) {
-                    Write-Warn "動画の準備は完了していません。表示された内容を確認してください。"
+                    $request = Get-PendingPlanWslSetup $Distro
+                    if ($request -and (Apply-PendingPlanWslSetup $Distro $request)) {
+                        Invoke-Wsl $Distro `
+                            ('cd "$HOME/narration-video-gen" && COLUMNS={0} NVG_DOWNLOAD_PROGRESS=inline ./bin/narration-video-gen plan --profile {1}' -f $ProgressColumns, $request.ProfileId)
+                    }
+                    if ($script:WslExitCode -ne 0) {
+                        Write-Warn "動画の準備は完了していません。表示された内容を確認してください。"
+                    }
                 }
             }
             "3" {
@@ -461,6 +468,83 @@ function Invoke-Wsl([string]$Distro, [string]$Command) {
         $ErrorActionPreference = $previousErrorActionPreference
     }
     $script:WslExitCode = $exitCode
+}
+
+function Get-PendingPlanWslSetup([string]$Distro) {
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $raw = & wsl.exe -d $Distro -- bash -lc `
+            'cd "$HOME/narration-video-gen" && ./bin/narration-video-gen --json show' 2>$null
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    if ($exitCode -ne 0 -or -not $raw) { return $null }
+    try {
+        $payload = (($raw -join "`n") -replace "`0", "") | ConvertFrom-Json
+        $setup = $payload.host_setup
+        if (-not $setup -or
+                -not ($setup.PSObject.Properties.Name -contains "wsl_swap_gib")) {
+            return $null
+        }
+        $profileId = [string]$payload.profile.id
+        $resolution = [int]$payload.recipe.resolution[1]
+        $memoryGiB = [int][math]::Ceiling([double]$setup.wsl_ram_gib)
+        $swapGiB = [int][math]::Ceiling([double]$setup.wsl_swap_gib)
+        if ($profileId -notmatch '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$' -or
+                $resolution -lt 720 -or $memoryGiB -lt 1 -or $memoryGiB -gt 256 -or
+                $swapGiB -lt 1 -or $swapGiB -gt 256) {
+            return $null
+        }
+        return [pscustomobject]@{
+            ProfileId = $profileId
+            Resolution = $resolution
+            MemoryGiB = $memoryGiB
+            SwapGiB = $swapGiB
+            CurrentMemoryGiB = [double]$setup.current_ram_gib
+            CurrentSwapGiB = [double]$setup.current_swap_gib
+        }
+    } catch {
+        Write-Warn "planが返したWSL設定要求を読み取れませんでした。"
+        return $null
+    }
+}
+
+function Apply-PendingPlanWslSetup([string]$Distro, $Request) {
+    Write-Section "720p用WSL設定"
+    Write-Host ("現在のswap: {0:N1} GiB / 720pに必要: {1} GiB" -f `
+        $Request.CurrentSwapGiB, $Request.SwapGiB)
+    $additionalGiB = [math]::Max(0, $Request.SwapGiB - $Request.CurrentSwapGiB)
+    Write-Host ("swapファイルは現在より最大約{0:N1} GiB多くディスクを使用する可能性があります。" -f `
+        $additionalGiB)
+    if (-not (Confirm-Action ".wslconfigのswapを$($Request.SwapGiB)GBへ増やしますか？")) {
+        Write-Warn "WSL設定は変更しません。現在の設定で720pは生成できません。"
+        return $false
+    }
+    Write-Warn "反映時にDocker DesktopとすべてのWSLディストリビューションを停止します。"
+    if (-not (Confirm-Action "設定を変更し、wsl --shutdownを実行しますか？")) {
+        Write-Warn "WSL設定は変更しません。"
+        return $false
+    }
+
+    Set-Wsl2Resources $Request.MemoryGiB $Request.SwapGiB
+    Write-Ok ".wslconfigを720p用に更新しました: memory=$($Request.MemoryGiB)GB以上, swap=$($Request.SwapGiB)GB以上"
+    $dockerDesktop = Get-DockerDesktopExecutable
+    if (-not (Stop-DockerDesktopForWslShutdown)) {
+        Write-Warn "Docker Desktopを終了してsetup.cmdを再実行してください。"
+        return $false
+    }
+    & wsl.exe --shutdown
+    if ($LASTEXITCODE -ne 0) { throw "wsl --shutdown failed with exit code $LASTEXITCODE" }
+    Write-Ok "WSLを停止し、720p用設定を反映しました。"
+    if ($script:RestartDockerAfterWslShutdown) {
+        if (-not $dockerDesktop -or -not (Restart-DockerDesktop $dockerDesktop 120)) {
+            return $false
+        }
+        $script:RestartDockerAfterWslShutdown = $false
+    }
+    return $true
 }
 
 function Test-Wsl([string]$Distro, [string]$Command) {

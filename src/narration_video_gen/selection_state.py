@@ -53,8 +53,8 @@ def _private_directory(root, create=False):
 
 
 def save(root, profile, model_family, resolution, *, recipe_options=None,
-         plan_configured=False):
-    """Atomically save a successful selection, refusing unsafe temp paths."""
+         plan_configured=False, host_setup=None):
+    """Atomically save a selected plan, including a pending host setup if any."""
     directory = _private_directory(root, create=True)
     if directory is None:
         raise OSError("temporary selection directory is not private and owned by this user")
@@ -70,6 +70,7 @@ def save(root, profile, model_family, resolution, *, recipe_options=None,
         "resolution": resolution,
         "recipe_options": list(recipe_options or []),
         "plan_configured": bool(plan_configured),
+        "host_setup": dict(host_setup or {}),
     }
     flags = os.O_WRONLY | os.O_CREAT | os.O_EXCL
     if hasattr(os, "O_NOFOLLOW"):
@@ -120,6 +121,8 @@ def load(root):
     if payload.get("boot_id") != _boot_id():
         return None
     if not all(payload.get(key) for key in ("profile", "model_family", "resolution")):
+        return None
+    if not isinstance(payload.get("host_setup", {}), dict):
         return None
     return payload
 

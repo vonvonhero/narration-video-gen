@@ -22,7 +22,7 @@ When you see a prompt such as `user@computer:~$`, type `exit` and press Enter.
 When Docker Desktop opens for the first time, review its terms and continue to the Dashboard. Return to the setup window and press Enter.
 The wizard can enable WSL integration if needed.
 
-Video setup gives WSL 20 GiB of memory and 32 GiB of swap (larger existing values are kept). 720p needs 48 GiB of swap. Applying WSL settings stops all WSL distributions and Docker containers, so save your work before continuing.
+Initial video setup gives WSL 20 GiB of memory and 32 GiB of swap (larger existing values are kept). When you select 720p on the preparation screen, the wizard shows the current swap and the 48 GiB requirement, then asks before increasing it. If accepted, it backs up and updates `.wslconfig` and resumes preparation for the selected 720p profile. Applying the setting stops all WSL distributions and Docker containers, so save your work before continuing.
 
 Before Ubuntu and WSL2 are installed, the wizard offers to create a desktop shortcut. If prompted to restart, open **Narration Video Gen** on the desktop to continue.
 If you chose not to create the shortcut, open the same `setup.cmd`. The wizard offers the shortcut again when setup completes.
@@ -32,7 +32,7 @@ If you chose not to create the shortcut, open the same `setup.cmd`. The wizard o
 For video use, setup opens the video menu:
 
 1. Choose **キャラクターと音声を作る (Create a character and narration)** to open the Web UI. Set the character's image, voice, speaking style, and script. After reviewing the narration, choose **Use this narration as video input**.
-2. Choose **動画の構成選択と準備 (Prepare video configuration)** to select the model and resolution, then prepare models and the runtime image.
+2. Choose **動画の構成選択と準備 (Prepare video configuration)** to select the model and resolution, then prepare models and the runtime image. If 720p needs more swap, this step offers to increase it to 48 GiB.
 3. Choose **動画を生成 (Generate video)** and select the input set created in the Web UI. Start with a short test.
 4. Choose **生成状況を確認 (Check generation status)** to view progress and the completed video's location.
 

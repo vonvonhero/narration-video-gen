@@ -358,12 +358,53 @@ def _choice_status(catalog, env, model_family, resolution, recommended_id=None):
         if best["fully_verified"]:
             return _tr("生成可能・確認済み", "runnable; verified"), result
         return _tr("生成可能・未確認", "runnable; unverified"), result
-    unavailable = _tr("利用不可", "unavailable")
     closest = result.get("closest")
+    host_setup = _windows_wsl_host_setup(env, closest)
+    if host_setup:
+        status = (_tr("設定変更後に生成可能・確認済み",
+                      "runnable after setup; verified")
+                  if closest["fully_verified"] else
+                  _tr("設定変更後に生成可能・未確認",
+                      "runnable after setup; unverified"))
+        reasons = " / ".join(_blocker_text(item) for item in closest["blockers"])
+        return "%s: %s" % (status, reasons), result
+    unavailable = _tr("利用不可", "unavailable")
     if closest and closest.get("blockers"):
         reasons = " / ".join(_blocker_text(item) for item in closest["blockers"])
         unavailable = "%s: %s" % (unavailable, reasons)
     return unavailable, result
+
+
+def _windows_wsl_host_setup(env, entry):
+    """Describe a Windows setup change that is sufficient for ``entry``.
+
+    Physical RAM, VRAM, disk, Docker, and unknown measurements cannot be fixed
+    by editing ``.wslconfig``.  Only an otherwise-compatible profile blocked by
+    the current WSL RAM/swap allocation is safe to carry into the Windows
+    setup wizard.
+    """
+    if (env.get("platform") != "windows-wsl2" or not entry
+            or entry.get("resolution") != "720p"):
+        return None
+    blockers = entry.get("blockers") or []
+    allowed = {"host_ram_gib_min", "swap_gib_min"}
+    if not blockers or any(
+            getattr(blocker, "code", None) != "insufficient"
+            or getattr(blocker, "fields", {}).get("key") not in allowed
+            for blocker in blockers):
+        return None
+    settings = entry.get("settings") or {}
+    requires = entry.get("requires") or {}
+    memory = settings.get("wsl_ram_gib") or requires.get("host_ram_gib_min")
+    swap = settings.get("wsl_swap_gib") or requires.get("swap_gib_min")
+    if not isinstance(memory, (int, float)) or not isinstance(swap, (int, float)):
+        return None
+    return {
+        "wsl_ram_gib": memory,
+        "wsl_swap_gib": swap,
+        "current_ram_gib": (env.get("memory") or {}).get("ram_gib"),
+        "current_swap_gib": (env.get("memory") or {}).get("swap_gib"),
+    }
 
 
 def _prompt_choice(title, options, default_index, input_fn=input, output=None):
@@ -1072,19 +1113,28 @@ def _interactive_plan_profile(catalog, env, root, input_fn=input, output=None):
         catalog, env, model_family=model_family, resolution=resolution,
         include_ineligible=True)
     selected = result["best"]
+    host_setup = None
     if selected is None:
-        print(_tr("\nこの組み合わせは利用できません。",
-                  "\nThis combination is unavailable."), file=output)
         closest = result.get("closest")
-        if closest:
-            _print_blockers(closest["blockers"], output=output)
-        return None, False
+        host_setup = _windows_wsl_host_setup(env, closest)
+        if not host_setup:
+            print(_tr("\nこの組み合わせは利用できません。",
+                      "\nThis combination is unavailable."), file=output)
+            if closest:
+                _print_blockers(closest["blockers"], output=output)
+            return None, False
+        selected = closest
+        print(_tr(
+            "\nこの構成にはWSLの設定変更が必要です。Windowsメニューに戻ったら確認します。",
+            "\nThis configuration needs a WSL resource change. The Windows menu will ask before applying it."),
+            file=output)
     # ``select`` returns a display/ranking entry, not the complete catalog
     # profile.  ``cmd_plan`` must evaluate the latter (it includes platform,
     # requirements, and evidence) after the guided choice.
     profile = catalog.profiles[selected["id"]]
     selection_state.save(
-        root, profile["id"], selected["model_family"], selected["resolution"])
+        root, profile["id"], selected["model_family"], selected["resolution"],
+        host_setup=host_setup)
     return profile, False
 
 
@@ -1330,10 +1380,11 @@ def _choose_plan_recipe_options(catalog, profile, args, interactive):
     if not interpolation_enabled:
         chosen.append("frame-interpolation-off")
     if not args.check and not args.json:
+        host_setup = (saved.get("host_setup") if saved_matches else None)
         selection_state.save(
             args.root, profile["id"], recipe["model_family"],
             "%dp" % recipe["resolution"][1], recipe_options=chosen,
-            plan_configured=True)
+            plan_configured=True, host_setup=host_setup)
     return chosen
 
 
@@ -1720,7 +1771,11 @@ def cmd_show(args):
               file=sys.stderr)
         return EXIT_ERROR
     profile = catalog.profiles[profile_id]
-    payload = {"profile": profile, "recipe": catalog.recipe_for(profile)}
+    saved = selection_state.load(args.root)
+    host_setup = (saved.get("host_setup") if saved and saved.get("profile") == profile_id
+                  else None)
+    payload = {"profile": profile, "recipe": catalog.recipe_for(profile),
+               "host_setup": host_setup}
 
     def render(payload):
         profile, recipe = payload["profile"], payload["recipe"]

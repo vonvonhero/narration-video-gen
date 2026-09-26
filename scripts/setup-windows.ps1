@@ -69,6 +69,15 @@ function Confirm-ActionDefaultYes([string]$Message) {
     return -not $answer -or $answer -match '^(?i:y|yes)$'
 }
 
+function Write-DesktopShortcut {
+    $shell = New-Object -ComObject WScript.Shell
+    $shortcut = $shell.CreateShortcut($DesktopShortcutPath)
+    $shortcut.TargetPath = $InstalledLauncherPath
+    $shortcut.WorkingDirectory = $SetupStateDirectory
+    $shortcut.Description = "動画・音声作成を開始します"
+    $shortcut.Save()
+}
+
 function Install-DesktopShortcut {
     try {
         $installedScriptDirectory = Split-Path -Parent $InstalledSetupScriptPath
@@ -91,12 +100,7 @@ function Install-DesktopShortcut {
                 -Destination $InstalledCleanupScriptPath -Force
         }
 
-        $shell = New-Object -ComObject WScript.Shell
-        $shortcut = $shell.CreateShortcut($DesktopShortcutPath)
-        $shortcut.TargetPath = $InstalledLauncherPath
-        $shortcut.WorkingDirectory = $SetupStateDirectory
-        $shortcut.Description = "動画・音声作成を開始します"
-        $shortcut.Save()
+        Write-DesktopShortcut
         Write-Ok "デスクトップショートカット: Narration Video Gen"
         return $true
     } catch {
@@ -176,6 +180,7 @@ function Show-VideoMenu([string]$Distro, [int]$ProgressColumns) {
         Write-Host "  5. 実行中の生成を中止 (cancel)"
         Write-Host "  6. TTS WebUIのパスワードを再設定"
         Write-Host "  7. 容量を解放する (cleanup)"
+        Write-Host "  8. リポジトリとWindows起動ファイルを更新"
         Write-Host "  0. 終了"
         $choice = Read-Host "番号を入力してください"
         if ($null -eq $choice) { return }
@@ -230,8 +235,11 @@ function Show-VideoMenu([string]$Distro, [int]$ProgressColumns) {
                     Write-Warn "クリーンアップを起動できません。setup.cmdを更新してください。"
                 }
             }
+            "8" {
+                if (Update-RepositoryAndWindowsLauncher $Distro) { return }
+            }
             "0" { return }
-            default { Write-Warn "0から7の番号を入力してください。" }
+            default { Write-Warn "0から8の番号を入力してください。" }
         }
     }
 }
@@ -468,6 +476,118 @@ function Invoke-Wsl([string]$Distro, [string]$Command) {
         $ErrorActionPreference = $previousErrorActionPreference
     }
     $script:WslExitCode = $exitCode
+}
+
+function Get-WslRepositoryWindowsPath([string]$Distro) {
+    $command = 'cd "$HOME/{0}" && printf "__NVG_PATH__%s\n" "$(wslpath -w "$PWD")"' -f `
+        $RepositoryDirectory
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = "Continue"
+        $raw = & wsl.exe -d $Distro -- bash -lc $command 2>$null
+        $exitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    if ($exitCode -ne 0) { return $null }
+    foreach ($line in (($raw -join "`n") -replace "`0", "" -split "`r?`n")) {
+        if ($line.StartsWith("__NVG_PATH__")) {
+            $path = $line.Substring("__NVG_PATH__".Length).Trim()
+            if ($path) { return $path }
+        }
+    }
+    return $null
+}
+
+function Install-WindowsLaunchFilesFromRepository([string]$Distro) {
+    $repositoryPath = Get-WslRepositoryWindowsPath $Distro
+    if (-not $repositoryPath) {
+        Write-Warn "WSL側リポジトリのWindowsパスを取得できませんでした。"
+        return $false
+    }
+    $files = @(
+        [pscustomobject]@{ Source = Join-Path $repositoryPath "setup.cmd"; Destination = $InstalledLauncherPath },
+        [pscustomobject]@{ Source = Join-Path $repositoryPath "cleanup.cmd"; Destination = $InstalledCleanupLauncherPath },
+        [pscustomobject]@{ Source = Join-Path $repositoryPath "scripts\setup-windows.ps1"; Destination = $InstalledSetupScriptPath },
+        [pscustomobject]@{ Source = Join-Path $repositoryPath "scripts\cleanup-windows.ps1"; Destination = $InstalledCleanupScriptPath }
+    )
+    foreach ($file in $files) {
+        if (-not (Test-Path -LiteralPath $file.Source -PathType Leaf)) {
+            Write-Warn "更新用ファイルが見つかりません: $($file.Source)"
+            return $false
+        }
+    }
+
+    $staging = Join-Path ([IO.Path]::GetTempPath()) `
+        ("narration-video-gen-update-" + [Guid]::NewGuid().ToString("N"))
+    try {
+        $null = New-Item -ItemType Directory -Path $staging
+        for ($index = 0; $index -lt $files.Count; $index++) {
+            $stagePath = Join-Path $staging ("file-$index")
+            Copy-Item -LiteralPath $files[$index].Source -Destination $stagePath
+            $files[$index] | Add-Member -NotePropertyName Stage -NotePropertyValue $stagePath
+        }
+        foreach ($file in $files) {
+            $null = New-Item -ItemType Directory -Path (Split-Path -Parent $file.Destination) -Force
+            Copy-Item -LiteralPath $file.Stage -Destination $file.Destination -Force
+        }
+        Write-DesktopShortcut
+        Write-Ok "Windows起動ファイルとデスクトップショートカットを更新しました。"
+        return $true
+    } catch {
+        Write-Warn "Windows起動ファイルを更新できませんでした: $($_.Exception.Message)"
+        return $false
+    } finally {
+        Remove-Item -LiteralPath $staging -Recurse -Force -ErrorAction SilentlyContinue
+    }
+}
+
+function Update-RepositoryAndWindowsLauncher([string]$Distro) {
+    Write-Section "更新"
+    if (-not (Confirm-Action "WSL側リポジトリとWindows起動ファイルを更新しますか？")) {
+        return $false
+    }
+    $repository = '$HOME/{0}' -f $RepositoryDirectory
+    if (-not (Test-Wsl $Distro ('test -d "{0}/.git"' -f $repository))) {
+        Write-Warn "WSL側のリポジトリが見つかりません。setup.cmdを再実行してください。"
+        return $false
+    }
+    if (-not (Test-Wsl $Distro `
+            ('test "$(git -C "{0}" remote get-url origin)" = "{1}"' -f $repository, $RepositoryUrl))) {
+        Write-Warn "WSL側リポジトリのoriginが公式URLと一致しないため、更新しません。"
+        return $false
+    }
+    if (-not (Test-Wsl $Distro ('test -z "$(git -C "{0}" status --porcelain)"' -f $repository))) {
+        Write-Warn "WSL側リポジトリに未コミット変更があります。変更を整理してから更新してください。"
+        return $false
+    }
+    if (-not (Test-Wsl $Distro ('test "$(git -C "{0}" branch --show-current)" = main' -f $repository))) {
+        Write-Warn "WSL側リポジトリがmainブランチではないため、更新しません。"
+        return $false
+    }
+
+    Invoke-Wsl $Distro ('git -C "{0}" fetch --prune origin' -f $repository)
+    if ($script:WslExitCode -ne 0) {
+        Write-Warn "最新版を取得できませんでした。ネットワーク接続を確認してください。"
+        return $false
+    }
+    if (-not (Test-Wsl $Distro `
+            ('git -C "{0}" merge-base --is-ancestor HEAD origin/main' -f $repository))) {
+        Write-Warn "WSL側mainに未pushのコミットがあるため、自動更新しません。"
+        return $false
+    }
+    Invoke-Wsl $Distro ('git -C "{0}" merge --ff-only origin/main' -f $repository)
+    if ($script:WslExitCode -ne 0) {
+        Write-Warn "WSL側リポジトリをfast-forward更新できませんでした。"
+        return $false
+    }
+    if (-not (Install-WindowsLaunchFilesFromRepository $Distro)) {
+        Write-Warn "WSL側は更新済みですが、Windows起動ファイルの更新は完了していません。"
+        return $false
+    }
+    Write-Ok "更新が完了しました。"
+    Write-Warn "この画面を閉じ、デスクトップの「Narration Video Gen」を開き直してください。"
+    return $true
 }
 
 function Get-PendingPlanWslSetup([string]$Distro) {

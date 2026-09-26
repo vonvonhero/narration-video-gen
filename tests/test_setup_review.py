@@ -199,6 +199,54 @@ try {
     Assert ((Get-Wsl2Setting "swap") -eq "96GB") "Existing larger swap allocation was reduced"
     Assert (([regex]::Matches($content, '(?m)^memory=')).Count -eq 1) "Missing memory setting was written more than once"
 
+    $repository = Join-Path $root "repository"
+    $repositoryScripts = Join-Path $repository "scripts"
+    $null = New-Item -ItemType Directory -Path $repositoryScripts
+    Set-Content (Join-Path $repository "setup.cmd") "new setup launcher"
+    Set-Content (Join-Path $repository "cleanup.cmd") "new cleanup launcher"
+    Set-Content (Join-Path $repositoryScripts "setup-windows.ps1") "new setup script"
+    Set-Content (Join-Path $repositoryScripts "cleanup-windows.ps1") "new cleanup script"
+    $SetupStateDirectory = Join-Path $root "installed"
+    $InstalledLauncherPath = Join-Path $SetupStateDirectory "setup.cmd"
+    $InstalledSetupScriptPath = Join-Path $SetupStateDirectory "scripts/setup-windows.ps1"
+    $InstalledCleanupLauncherPath = Join-Path $SetupStateDirectory "cleanup.cmd"
+    $InstalledCleanupScriptPath = Join-Path $SetupStateDirectory "scripts/cleanup-windows.ps1"
+    $DesktopShortcutPath = Join-Path $SetupStateDirectory "Narration Video Gen.lnk"
+    function Get-WslRepositoryWindowsPath { return $repository }
+    $script:shortcutWritten = $false
+    function Write-DesktopShortcut { $script:shortcutWritten = $true }
+    Assert (Install-WindowsLaunchFilesFromRepository "Ubuntu-24.04") `
+        "The WSL checkout was not copied to the Windows launcher directory"
+    Assert ((Get-Content $InstalledSetupScriptPath -Raw) -match "new setup script") `
+        "The installed setup script was not refreshed"
+    Assert ($script:shortcutWritten) "The desktop shortcut was not refreshed"
+
+    $RepositoryDirectory = "narration-video-gen"
+    $RepositoryUrl = "https://github.com/vonvonhero/narration-video-gen.git"
+    $script:updateChecks = [Collections.Generic.Queue[bool]]::new()
+    foreach ($value in @($true, $true, $true, $true, $true)) { $script:updateChecks.Enqueue($value) }
+    $script:updateCommands = @()
+    function Confirm-Action { return $true }
+    function Test-Wsl { return $script:updateChecks.Dequeue() }
+    function Invoke-Wsl {
+        param([string]$Distro, [string]$Command)
+        $script:updateCommands += $Command
+        $script:WslExitCode = 0
+    }
+    function Install-WindowsLaunchFilesFromRepository { return $true }
+    Assert (Update-RepositoryAndWindowsLauncher "Ubuntu-24.04") `
+        "A clean official main checkout was not updated"
+    Assert (($script:updateCommands -join "`n") -match "fetch --prune origin" -and
+            ($script:updateCommands -join "`n") -match "merge --ff-only origin/main") `
+        "The updater did not use a fetch plus fast-forward merge"
+    $script:updateChecks = [Collections.Generic.Queue[bool]]::new()
+    foreach ($value in @($true, $true, $false)) { $script:updateChecks.Enqueue($value) }
+    $script:updateCommands = @()
+    Assert (-not (Update-RepositoryAndWindowsLauncher "Ubuntu-24.04")) `
+        "A checkout with local changes was updated"
+    Assert ($script:updateCommands.Count -eq 0) `
+        "The updater contacted the remote for a dirty checkout"
+
     function wsl.exe {
         param([Parameter(ValueFromRemainingArguments=$true)]$Arguments)
         $global:LASTEXITCODE = 0
@@ -250,7 +298,7 @@ try {
     Assert (Ensure-Wsl2 "Ubuntu-24.04") "Approved WSL conversion failed"
     Assert ($script:wslCommands -contains '--set-version Ubuntu-24.04 2') "Conversion was not invoked"
 
-    Write-Host "PASS: PowerShell syntax, resource preservation, purpose input, and WSL2 checks"
+    Write-Host "PASS: PowerShell syntax, resource preservation, Windows update, purpose input, and WSL2 checks"
 } finally {
     Remove-Item -LiteralPath $root -Recurse -Force
 }

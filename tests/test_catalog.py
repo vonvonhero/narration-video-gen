@@ -1556,6 +1556,14 @@ def test_windows_setup_is_guided_and_safe():
           and '.wslconfigのswapを$($Request.SwapGiB)GBへ増やしますか？' in text
           and "plan --profile {1}" in text,
           "the Windows menu offers and applies the selected 720p swap upgrade")
+    check("Update-RepositoryAndWindowsLauncher" in text
+          and "Install-WindowsLaunchFilesFromRepository" in text
+          and "リポジトリとWindows起動ファイルを更新" in text
+          and "status --porcelain" in text
+          and "fetch --prune origin" in text
+          and "merge --ff-only origin/main" in text
+          and "originが公式URLと一致しない" in text,
+          "the Windows menu safely updates both the WSL checkout and launcher files")
     check("scripts/setup-linux.sh --check" in text
           and "scripts/setup-linux.sh --test-gpu --yes" in text,
           "the wizard reuses shared diagnosis and the pinned GPU probe")

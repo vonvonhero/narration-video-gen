@@ -36,6 +36,8 @@ For video use, setup opens the video menu:
 3. Choose **動画を生成 (Generate video)** and select the input set created in the Web UI. Start with a short test.
 4. Choose **生成状況を確認 (Check generation status)** to view progress and the completed video's location.
 
+Choose **リポジトリとWindows起動ファイルを更新 (Update repository and Windows launch files)** to fast-forward the official WSL `main` checkout and refresh the Windows-side files used by the shortcut. The updater stops without overwriting a checkout with uncommitted changes, another branch, or another `origin`. Reopen the shortcut when prompted.
+
 Generation continues in the background. After closing the window, reopen the shortcut to check progress or cancel.
 See the [Linux generation steps](linux_en.md#3-choose-your-input-and-generate) for input folders and detailed usage.
 

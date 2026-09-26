@@ -212,7 +212,35 @@ try {
     $InstalledCleanupLauncherPath = Join-Path $SetupStateDirectory "cleanup.cmd"
     $InstalledCleanupScriptPath = Join-Path $SetupStateDirectory "scripts/cleanup-windows.ps1"
     $DesktopShortcutPath = Join-Path $SetupStateDirectory "Narration Video Gen.lnk"
-    function Get-WslRepositoryWindowsPath { return $repository }
+    $env:WSLENV = "EXISTING/u"
+    Remove-Item Env:NVG_UPDATE_STAGE -ErrorAction SilentlyContinue
+    $script:capturedUpdateStage = $null
+    $script:capturedWslEnv = $null
+    $script:capturedCopyCommand = $null
+    function Invoke-Wsl {
+        param([string]$Distro, [string]$Command)
+        $script:capturedUpdateStage = $env:NVG_UPDATE_STAGE
+        $script:capturedWslEnv = $env:WSLENV
+        $script:capturedCopyCommand = $Command
+        $script:WslExitCode = 0
+    }
+    Assert (Copy-WslLaunchFilesToStage "Ubuntu-24.04" $repository) `
+        "The WSL-to-Windows staging command failed"
+    Assert ($script:capturedUpdateStage -eq $repository -and
+            $script:capturedWslEnv -eq "EXISTING/u:NVG_UPDATE_STAGE/p" -and
+            $script:capturedCopyCommand -match "base64 -d \| bash") `
+        "The Windows staging path was not passed through WSLENV"
+    Assert ($env:WSLENV -eq "EXISTING/u" -and
+            -not (Test-Path Env:NVG_UPDATE_STAGE)) `
+        "The staging environment was not restored"
+    function Copy-WslLaunchFilesToStage {
+        param([string]$Distro, [string]$Staging)
+        Copy-Item (Join-Path $repository "setup.cmd") (Join-Path $Staging "file-0")
+        Copy-Item (Join-Path $repository "cleanup.cmd") (Join-Path $Staging "file-1")
+        Copy-Item (Join-Path $repositoryScripts "setup-windows.ps1") (Join-Path $Staging "file-2")
+        Copy-Item (Join-Path $repositoryScripts "cleanup-windows.ps1") (Join-Path $Staging "file-3")
+        return $true
+    }
     $script:shortcutWritten = $false
     function Write-DesktopShortcut { $script:shortcutWritten = $true }
     Assert (Install-WindowsLaunchFilesFromRepository "Ubuntu-24.04") `

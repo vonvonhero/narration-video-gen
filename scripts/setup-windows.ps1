@@ -478,56 +478,61 @@ function Invoke-Wsl([string]$Distro, [string]$Command) {
     $script:WslExitCode = $exitCode
 }
 
-function Get-WslRepositoryWindowsPath([string]$Distro) {
-    $command = 'cd "$HOME/{0}" && printf "__NVG_PATH__%s\n" "$(wslpath -w "$PWD")"' -f `
-        $RepositoryDirectory
-    $previousErrorActionPreference = $ErrorActionPreference
+function Copy-WslLaunchFilesToStage([string]$Distro, [string]$Staging) {
+    $previousStage = [Environment]::GetEnvironmentVariable("NVG_UPDATE_STAGE", "Process")
+    $previousWslEnv = [Environment]::GetEnvironmentVariable("WSLENV", "Process")
     try {
-        $ErrorActionPreference = "Continue"
-        $raw = & wsl.exe -d $Distro -- bash -lc $command 2>$null
-        $exitCode = $LASTEXITCODE
+        $env:NVG_UPDATE_STAGE = $Staging
+        $wslEnvEntries = @($previousWslEnv -split ':' | Where-Object {
+            $_ -and $_ -notmatch '^(?i:NVG_UPDATE_STAGE)(?:/.*)?$'
+        })
+        $env:WSLENV = (@($wslEnvEntries) + "NVG_UPDATE_STAGE/p") -join ':'
+        $copyScript = @'
+set -eu
+repo="$HOME/narration-video-gen"
+stage="$NVG_UPDATE_STAGE"
+test -d "$stage"
+cp -- "$repo/setup.cmd" "$stage/file-0"
+cp -- "$repo/cleanup.cmd" "$stage/file-1"
+cp -- "$repo/scripts/setup-windows.ps1" "$stage/file-2"
+cp -- "$repo/scripts/cleanup-windows.ps1" "$stage/file-3"
+'@
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes($copyScript))
+        Invoke-Wsl $Distro ("printf %s {0} | base64 -d | bash" -f $encoded)
+        return $script:WslExitCode -eq 0
     } finally {
-        $ErrorActionPreference = $previousErrorActionPreference
-    }
-    if ($exitCode -ne 0) { return $null }
-    foreach ($line in (($raw -join "`n") -replace "`0", "" -split "`r?`n")) {
-        if ($line.StartsWith("__NVG_PATH__")) {
-            $path = $line.Substring("__NVG_PATH__".Length).Trim()
-            if ($path) { return $path }
+        if ($null -eq $previousStage) {
+            Remove-Item Env:NVG_UPDATE_STAGE -ErrorAction SilentlyContinue
+        } else {
+            $env:NVG_UPDATE_STAGE = $previousStage
+        }
+        if ($null -eq $previousWslEnv) {
+            Remove-Item Env:WSLENV -ErrorAction SilentlyContinue
+        } else {
+            $env:WSLENV = $previousWslEnv
         }
     }
-    return $null
 }
 
 function Install-WindowsLaunchFilesFromRepository([string]$Distro) {
-    $repositoryPath = Get-WslRepositoryWindowsPath $Distro
-    if (-not $repositoryPath) {
-        Write-Warn "WSL側リポジトリのWindowsパスを取得できませんでした。"
-        return $false
-    }
-    $files = @(
-        [pscustomobject]@{ Source = Join-Path $repositoryPath "setup.cmd"; Destination = $InstalledLauncherPath },
-        [pscustomobject]@{ Source = Join-Path $repositoryPath "cleanup.cmd"; Destination = $InstalledCleanupLauncherPath },
-        [pscustomobject]@{ Source = Join-Path $repositoryPath "scripts\setup-windows.ps1"; Destination = $InstalledSetupScriptPath },
-        [pscustomobject]@{ Source = Join-Path $repositoryPath "scripts\cleanup-windows.ps1"; Destination = $InstalledCleanupScriptPath }
-    )
-    foreach ($file in $files) {
-        if (-not (Test-Path -LiteralPath $file.Source -PathType Leaf)) {
-            Write-Warn "更新用ファイルが見つかりません: $($file.Source)"
-            return $false
-        }
-    }
-
     $staging = Join-Path ([IO.Path]::GetTempPath()) `
         ("narration-video-gen-update-" + [Guid]::NewGuid().ToString("N"))
     try {
         $null = New-Item -ItemType Directory -Path $staging
-        for ($index = 0; $index -lt $files.Count; $index++) {
-            $stagePath = Join-Path $staging ("file-$index")
-            Copy-Item -LiteralPath $files[$index].Source -Destination $stagePath
-            $files[$index] | Add-Member -NotePropertyName Stage -NotePropertyValue $stagePath
+        if (-not (Copy-WslLaunchFilesToStage $Distro $staging)) {
+            Write-Warn "WSL側から更新用ファイルをコピーできませんでした。"
+            return $false
         }
+        $files = @(
+            [pscustomobject]@{ Stage = Join-Path $staging "file-0"; Destination = $InstalledLauncherPath },
+            [pscustomobject]@{ Stage = Join-Path $staging "file-1"; Destination = $InstalledCleanupLauncherPath },
+            [pscustomobject]@{ Stage = Join-Path $staging "file-2"; Destination = $InstalledSetupScriptPath },
+            [pscustomobject]@{ Stage = Join-Path $staging "file-3"; Destination = $InstalledCleanupScriptPath }
+        )
         foreach ($file in $files) {
+            if (-not (Test-Path -LiteralPath $file.Stage -PathType Leaf)) {
+                throw "staged update file is missing: $($file.Stage)"
+            }
             $null = New-Item -ItemType Directory -Path (Split-Path -Parent $file.Destination) -Force
             Copy-Item -LiteralPath $file.Stage -Destination $file.Destination -Force
         }

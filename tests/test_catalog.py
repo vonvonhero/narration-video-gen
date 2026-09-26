@@ -1558,6 +1558,10 @@ def test_windows_setup_is_guided_and_safe():
           "the Windows menu offers and applies the selected 720p swap upgrade")
     check("Update-RepositoryAndWindowsLauncher" in text
           and "Install-WindowsLaunchFilesFromRepository" in text
+          and "Copy-WslLaunchFilesToStage" in text
+          and "NVG_UPDATE_STAGE/p" in text
+          and "base64 -d | bash" in text
+          and 'wslpath -w "$PWD"' not in text
           and "リポジトリとWindows起動ファイルを更新" in text
           and "status --porcelain" in text
           and "fetch --prune origin" in text

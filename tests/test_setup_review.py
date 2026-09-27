@@ -180,6 +180,128 @@ function Assert($Condition, [string]$Message) {
 $root = Join-Path ([IO.Path]::GetTempPath()) ("nvg-setup-test-" + [Guid]::NewGuid())
 $null = New-Item -ItemType Directory $root
 try {
+    # Real child processes: bound a hung client and drain large output safely.
+    $pwsh = (Get-Process -Id $PID).Path
+    Assert (Invoke-SetupProbe $pwsh '-NoProfile -Command "Write-Output linux"' "linux") "Probe output was lost"
+    Assert (-not (Invoke-SetupProbe $pwsh '-NoProfile -Command "Write-Output windows"' "linux")) "Wrong engine type accepted"
+    Assert (-not (Invoke-SetupProbe $pwsh '-NoProfile -Command "exit 1"')) "Failed client accepted"
+    $timer = [Diagnostics.Stopwatch]::StartNew()
+    Assert (-not (Invoke-SetupProbe $pwsh '-NoProfile -Command "Start-Sleep 30"' "" 200)) "Hung client accepted"
+    Assert ($timer.Elapsed.TotalSeconds -lt 5) "Client timeout did not bound the call"
+    Assert (Invoke-SetupProbe $pwsh '-NoProfile -Command "[Console]::Error.Write((''x'' * 100000)); Write-Output linux"' "linux") "Probe deadlocked on stderr"
+
+    $lockName = "nvg-test-" + [Guid]::NewGuid().ToString("N")
+    $sessionLock = Enter-SetupSession $lockName
+    Assert ($null -ne $sessionLock) "First setup session could not acquire its lock"
+    $child = '$m = [Threading.Mutex]::new($false, "' + $lockName + '"); if ($m.WaitOne(0)) { $m.ReleaseMutex(); $m.Dispose(); exit 1 }; $m.Dispose(); exit 0'
+    $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($child))
+    try {
+        Assert (Invoke-SetupProbe $pwsh "-NoProfile -EncodedCommand $encoded") "Another process entered an active setup session"
+    } finally {
+        $sessionLock.ReleaseMutex()
+        $sessionLock.Dispose()
+    }
+    Assert (-not (Invoke-SetupProbe $pwsh "-NoProfile -EncodedCommand $encoded")) "Setup lock was not released"
+
+    # Virtual time: readiness must remain true; a last-minute success is insufficient.
+    function Get-Date { return $script:now }
+    function Start-Sleep { param($Seconds) $script:now = $script:now.AddSeconds(30) }
+    function Get-DockerBackendIdentity { return $script:identities.Dequeue() }
+    function Test-DockerDesktopEngine { return $script:health.Dequeue() }
+    function Test-DockerInWsl { param($Distro) return $script:wslHealthy }
+    foreach ($case in @(
+        @{ Name = "stable"; Health = @($true,$true,$true); Ids = @("a","a","a","a","a","a"); Expected = $true; Limit = 180 },
+        @{ Name = "delayed startup"; Health = @($false,$true,$true,$true); Ids = @("a","a","a","a","a","a","a","a"); Expected = $true; Limit = 180 },
+        @{ Name = "lost response"; Health = @($true,$false); Ids = @("a","a","a","a"); Expected = $false; Limit = 180 },
+        @{ Name = "backend replaced"; Health = @($true); Ids = @("a","a","b"); Expected = $false; Limit = 180 },
+        @{ Name = "backend exited during probe"; Health = @($true); Ids = @("a",""); Expected = $false; Limit = 180 },
+        @{ Name = "only final success"; Health = @($false,$false,$true); Ids = @("a","a","a","a","a","a"); Expected = $false; Limit = 90 },
+        @{ Name = "WSL unavailable"; Health = @($true,$true,$true); Ids = @("a","a","a","a","a","a"); Expected = $false; Limit = 90; Wsl = $true }
+    )) {
+        $script:now = [datetime]"2026-01-01T00:00:00Z"
+        $script:health = [Collections.Generic.Queue[bool]]::new()
+        foreach ($value in $case.Health) { $script:health.Enqueue($value) }
+        $script:identities = [Collections.Generic.Queue[string]]::new()
+        foreach ($value in $case.Ids) { $script:identities.Enqueue($value) }
+        $script:wslHealthy = $false
+        $distro = if ($case.Wsl) { "Ubuntu" } else { "" }
+        Assert ((Wait-DockerDesktopEngine $case.Limit $distro) -eq $case.Expected) "Readiness failed: $($case.Name)"
+    }
+    Remove-Item Function:Get-Date, Function:Start-Sleep
+    foreach ($definition in $functions | Where-Object Name -in @("Get-DockerBackendIdentity", "Test-DockerDesktopEngine", "Test-DockerInWsl")) {
+        Invoke-Expression $definition.Extent.Text
+    }
+
+    # Exercise lifecycle helpers without touching a real Desktop installation.
+    function Get-Process {
+        param($Name, $ErrorAction)
+        if ($script:runningProcess -in $Name) { return @{ Id = 123 } }
+    }
+    foreach ($name in @("Docker Desktop", "com.docker.backend")) {
+        $script:runningProcess = $name
+        Assert (Test-DockerDesktopRunning) "Missed a remaining Desktop process: $name"
+    }
+    $script:runningProcess = "unrelated"
+    Assert (-not (Test-DockerDesktopRunning)) "Unrelated process blocked Desktop"
+
+    $script:states = [Collections.Generic.Queue[bool]]::new()
+    foreach ($state in @($false, $true, $false, $false)) { $script:states.Enqueue($state) }
+    function Test-DockerDesktopRunning { return $script:states.Dequeue() }
+    function Start-Sleep { param($Seconds) }
+    Assert (Wait-DockerDesktopStopped 10) "Desktop did not become quiet"
+    Assert ($script:states.Count -eq 0) "Shutdown accepted a transient backend exit"
+    Assert (-not (Wait-DockerDesktopStopped 0)) "Shutdown timeout was accepted"
+
+    function Test-DockerDesktopRunning { return $true }
+    function Get-DockerDesktopControlExecutable { return "unused" }
+    function Start-Process {
+        param($FilePath, $ArgumentList, $WindowStyle, [switch]$PassThru)
+        $process = [pscustomobject]@{ ExitCode = $script:shutdownExitCode }
+        $process | Add-Member ScriptMethod WaitForExit { param($Milliseconds) return (-not $script:shutdownHung) }
+        $process | Add-Member ScriptMethod Kill { $script:requestKilled = $true }
+        return $process
+    }
+    function Wait-DockerDesktopStopped { return $script:desktopStopped }
+    foreach ($case in @(@(1, $true, $false), @(0, $false, $false), @(0, $true, $true))) {
+        $script:shutdownExitCode = $case[0]
+        $script:desktopStopped = $case[1]
+        $script:RestartDockerAfterWslShutdown = $false
+        Assert ((Stop-DockerDesktopForWslShutdown) -eq $case[2]) "Incorrect shutdown result"
+        Assert ($script:RestartDockerAfterWslShutdown -eq $case[2]) "Unsafe pending restart"
+    }
+    $script:shutdownHung = $true
+    $script:requestKilled = $false
+    $script:RestartDockerAfterWslShutdown = $false
+    Assert (-not (Stop-DockerDesktopForWslShutdown)) "Hung stop request was accepted"
+    Assert ($script:requestKilled -and -not $script:RestartDockerAfterWslShutdown) "Hung request did not stop safely"
+
+    function Wait-DockerDesktopStopped { return $false }
+    $DockerSettingsPath = Join-Path $root "settings-store.json"
+    Set-Content $DockerSettingsPath '{"IntegratedWslDistros":["Existing"],"unrelated":42}'
+    $originalSettings = Get-Content $DockerSettingsPath -Raw
+    Assert (-not (Enable-DockerWslIntegration "Ubuntu")) "Running Desktop settings were modified"
+    Assert ((Get-Content $DockerSettingsPath -Raw) -eq $originalSettings) "Blocked edit changed settings"
+    Assert (@(Get-ChildItem "$DockerSettingsPath.backup-*").Count -eq 0) "Blocked edit wrote a backup"
+    function Wait-DockerDesktopStopped { return $true }
+    Assert (Enable-DockerWslIntegration "Ubuntu") "Stopped Desktop settings were not updated"
+    $settings = Get-Content $DockerSettingsPath -Raw | ConvertFrom-Json
+    Assert ($settings.IntegratedWslDistros -contains "Existing" -and
+            $settings.IntegratedWslDistros -contains "Ubuntu" -and
+            $settings.unrelated -eq 42) "Integration update lost existing settings"
+
+    $script:startCount = 0
+    function Start-Process { param($FilePath) $script:startCount++ }
+    function Test-DockerDesktopRunning { return $true }
+    function Wait-DockerDesktopEngine { param($Seconds) return $false }
+    $script:RestartDockerAfterWslShutdown = $true
+    Assert (-not (Restart-DockerDesktop "unused" 0)) "Engine timeout was accepted"
+    Assert ($script:startCount -eq 0) "Started a duplicate Desktop"
+    Assert (-not $script:RestartDockerAfterWslShutdown) "Timeout left a pending restart"
+    function Test-DockerDesktopRunning { return $false }
+    function Wait-DockerDesktopEngine { param($Seconds) return $true }
+    Assert (Restart-DockerDesktop "unused" 0) "Stopped Desktop did not start"
+    Assert ($script:startCount -eq 1) "Desktop was not started exactly once"
+
     $WslConfigPath = Join-Path $root ".wslconfig"
     Set-Wsl2Resources 20 32
     Assert ((Get-Wsl2Setting "swap") -eq "32GB") "Fresh setup did not use 32 GiB"
@@ -334,7 +456,7 @@ try {
     Assert (Ensure-Wsl2 "Ubuntu-24.04") "Approved WSL conversion failed"
     Assert ($script:wslCommands -contains '--set-version Ubuntu-24.04 2') "Conversion was not invoked"
 
-    Write-Host "PASS: PowerShell syntax, resource preservation, Windows update, purpose input, and WSL2 checks"
+    Write-Host "PASS: PowerShell syntax, Docker lifecycle, resource preservation, Windows update, purpose input, and WSL2 checks"
 } finally {
     Remove-Item -LiteralPath $root -Recurse -Force
 }

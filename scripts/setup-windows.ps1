@@ -766,8 +766,11 @@ function Get-DockerDesktopExecutable {
 }
 
 function Get-DockerCliExecutable {
-    $bundled = Join-Path $env:ProgramFiles "Docker\Docker\resources\bin\docker.exe"
-    if (Test-Path $bundled) { return $bundled }
+    $desktop = Get-DockerDesktopExecutable
+    if ($desktop) {
+        $bundled = Join-Path (Split-Path -Parent $desktop) "resources\bin\docker.exe"
+        if (Test-Path $bundled) { return $bundled }
+    }
     $command = Get-Command docker.exe -ErrorAction SilentlyContinue
     if ($command) { return $command.Source }
     return $null
@@ -787,20 +790,21 @@ function Save-WslUiLanguage([string]$Distro, [string]$Language) {
 }
 
 function Get-DockerDesktopControlExecutable {
-    $candidate = Join-Path $env:ProgramFiles "Docker\Docker\DockerCli.exe"
-    if (Test-Path $candidate) { return $candidate }
+    $desktop = Get-DockerDesktopExecutable
+    if ($desktop) {
+        $candidate = Join-Path (Split-Path -Parent $desktop) "DockerCli.exe"
+        if (Test-Path $candidate) { return $candidate }
+    }
     return $null
 }
 
-function Test-DockerDesktopEngine {
-    $docker = Get-DockerCliExecutable
-    if (-not $docker) { return $false }
-
-    # A half-stopped Docker Desktop can leave the CLI waiting forever. Run the
-    # probe as a child process so setup.cmd always regains control.
+function Invoke-SetupProbe([string]$Executable, [string]$Arguments,
+                           [string]$ExpectedOutput = "", [int]$TimeoutMilliseconds = 5000) {
+    # Bound the client externally: even `docker desktop stop --timeout` can hang.
+    # Killing this probe is never permission to kill Desktop/backend or WSL.
     $startInfo = New-Object System.Diagnostics.ProcessStartInfo
-    $startInfo.FileName = $docker
-    $startInfo.Arguments = "version --format '{{.Server.Version}}'"
+    $startInfo.FileName = $Executable
+    $startInfo.Arguments = $Arguments
     $startInfo.UseShellExecute = $false
     $startInfo.CreateNoWindow = $true
     $startInfo.RedirectStandardOutput = $true
@@ -809,12 +813,16 @@ function Test-DockerDesktopEngine {
     $process.StartInfo = $startInfo
     try {
         if (-not $process.Start()) { return $false }
-        if (-not $process.WaitForExit(5000)) {
+        # Drain both pipes concurrently so a full stderr/stdout pipe cannot hang us.
+        $stdout = $process.StandardOutput.ReadToEndAsync()
+        $stderr = $process.StandardError.ReadToEndAsync()
+        if (-not $process.WaitForExit($TimeoutMilliseconds)) {
             $process.Kill()
-            $process.WaitForExit()
             return $false
         }
-        return $process.ExitCode -eq 0
+        if (-not $stdout.Wait(1000) -or -not $stderr.Wait(1000)) { return $false }
+        return ($process.ExitCode -eq 0 -and
+            (-not $ExpectedOutput -or $stdout.Result.Trim() -eq $ExpectedOutput))
     } catch {
         return $false
     } finally {
@@ -822,10 +830,52 @@ function Test-DockerDesktopEngine {
     }
 }
 
+function Test-DockerDesktopEngine {
+    $docker = Get-DockerCliExecutable
+    if (-not $docker) { return $false }
+    # Do not accidentally accept the user's remote/default Docker context.
+    if (-not (Invoke-SetupProbe $docker "--context desktop-linux version --format {{.Server.Version}}")) {
+        return $false
+    }
+    return (Invoke-SetupProbe $docker "--context desktop-linux info --format {{.OSType}}" "linux")
+}
+
+function Get-DockerBackendIdentity {
+    try {
+        $processes = @(Get-Process -Name "com.docker.backend" -ErrorAction SilentlyContinue)
+        if (-not $processes.Count) { return "" }
+        return (($processes | Sort-Object Id | ForEach-Object {
+            "{0}:{1}" -f $_.Id, $_.StartTime.ToUniversalTime().Ticks
+        }) -join ",")
+    } catch { return "" }
+}
+
+function Test-DockerInWsl([string]$Distro) {
+    # Bound wsl.exe itself as well as commands inside WSL (WSL can hang before exec).
+    if ($Distro -match '["\r\n]') { return $false }
+    $arguments = '--distribution "{0}" --exec timeout 15s sh -c "docker version >/dev/null 2>&1 && docker compose version >/dev/null 2>&1"' -f $Distro
+    return (Invoke-SetupProbe "wsl.exe" $arguments "" 20000)
+}
+
+function Test-DockerDesktopRunning {
+    return [bool](Get-Process -Name "Docker Desktop", "com.docker.backend" `
+        -ErrorAction SilentlyContinue)
+}
+
+function Wait-DockerDesktopStopped([int]$Seconds = 60) {
+    $deadline = (Get-Date).AddSeconds($Seconds)
+    $quietChecks = 0
+    while ((Get-Date) -lt $deadline) {
+        if (Test-DockerDesktopRunning) { $quietChecks = 0 } else { $quietChecks++ }
+        # Require both frontend and backend to stay absent across two polls.
+        if ($quietChecks -ge 2) { return $true }
+        Start-Sleep -Seconds 1
+    }
+    return $false
+}
+
 function Stop-DockerDesktopForWslShutdown {
-    $backend = Get-Process -Name "com.docker.backend" -ErrorAction SilentlyContinue
-    $frontend = Get-Process -Name "Docker Desktop" -ErrorAction SilentlyContinue
-    if (-not $backend -and -not $frontend) { return $true }
+    if (-not (Test-DockerDesktopRunning)) { return (Wait-DockerDesktopStopped) }
 
     $control = Get-DockerDesktopControlExecutable
     if (-not $control) {
@@ -842,20 +892,24 @@ function Stop-DockerDesktopForWslShutdown {
         return $false
     }
 
-    $deadline = (Get-Date).AddSeconds(30)
-    while ((Get-Date) -lt $deadline) {
-        if (-not (Get-Process -Name "com.docker.backend" -ErrorAction SilentlyContinue)) {
-            $script:RestartDockerAfterWslShutdown = $true
-            Write-Ok "Docker Desktopを終了しました。"
-            return $true
-        }
-        Start-Sleep -Seconds 1
+    if ($shutdown.ExitCode -ne 0) {
+        Write-Ng "Docker Desktopの終了要求に失敗しました。強制終了せず、画面からQuitしてください。"
+        return $false
     }
-    Write-Ng "Docker Desktopのバックエンドが終了しませんでした。"
+    if (Wait-DockerDesktopStopped) {
+        $script:RestartDockerAfterWslShutdown = $true
+        Write-Ok "Docker Desktopを終了しました。"
+        return $true
+    }
+    Write-Ng "Docker Desktopの終了を確認できません。強制終了せず、画面からQuitしてください。"
     return $false
 }
 
 function Enable-DockerWslIntegration([string]$Distro) {
+    if (-not (Wait-DockerDesktopStopped)) {
+        Write-Ng "Docker Desktopが停止していないため、WSL統合設定を変更しません。"
+        return $false
+    }
     if (-not (Test-Path -LiteralPath $DockerSettingsPath)) {
         Write-Ng "Docker Desktopの設定ファイルが見つかりません: $DockerSettingsPath"
         return $false
@@ -887,43 +941,55 @@ function Enable-DockerWslIntegration([string]$Distro) {
 }
 
 function Restart-DockerDesktop([string]$Executable, [int]$Seconds = 120) {
-    Start-Process $Executable
+    # Consume the pending start even on timeout; do not launch a second instance.
+    $script:RestartDockerAfterWslShutdown = $false
+    if (-not (Test-DockerDesktopRunning)) { Start-Process $Executable }
     if (Wait-DockerDesktopEngine $Seconds) {
         Write-Ok "Dockerエンジンが再起動しました。"
         return $true
     }
-    Write-Ng "Dockerエンジンを再起動できませんでした。Docker Desktop画面のエラーを確認してください。"
+    Write-Ng "Dockerエンジンの起動がタイムアウトしました。強制終了や再起動を繰り返さず、Docker Desktop画面とログを確認してください。"
+    Write-Warn "socket / .sock のremove・renameエラーは docs/troubleshooting.md を参照してください。"
     return $false
 }
 
-function Wait-DockerDesktopEngine([int]$Seconds = 30) {
+function Wait-DockerDesktopEngine([int]$Seconds = 300, [string]$Distro = "") {
     $deadline = (Get-Date).AddSeconds($Seconds)
-    Write-Host -NoNewline "Dockerエンジンを確認しています"
+    $identity = ""
+    $stableSince = $null
+    $successes = 0
+    Write-Host "Dockerの継続応答を確認します（60秒以上・3回以上、上限${Seconds}秒）。"
     while ((Get-Date) -lt $deadline) {
-        if (Test-DockerDesktopEngine) {
-            Write-Host ""
-            return $true
+        $current = Get-DockerBackendIdentity
+        if ($identity -and $current -ne $identity) {
+            Write-Ng "Dockerバックエンドが終了または交代しました。セットアップを停止します。"
+            return $false
         }
-        Start-Sleep -Seconds 3
-        Write-Host -NoNewline "."
+        if ($current) { $identity = $current }
+        $healthy = $current -and (Test-DockerDesktopEngine)
+        if ($healthy -and $Distro) { $healthy = Test-DockerInWsl $Distro }
+        # The backend can exit/restart during a probe; check again before accepting it.
+        if ($current -and (Get-DockerBackendIdentity) -ne $current) {
+            Write-Ng "確認中にDockerバックエンドが終了または交代しました。"
+            return $false
+        }
+        if ($healthy) {
+            if ($null -eq $stableSince) { $stableSince = Get-Date }
+            $successes++
+            if ((Get-Date) -lt $deadline -and $successes -ge 3 -and
+                ((Get-Date) - $stableSince).TotalSeconds -ge 60) { return $true }
+        } elseif ($null -ne $stableSince) {
+            Write-Ng "Dockerの応答が途切れました。再起動せずログを確認してください。"
+            return $false
+        }
+        Start-Sleep -Seconds 5
     }
-    Write-Host ""
+    Write-Ng "Dockerの継続応答を制限時間内に確認できませんでした。"
     return $false
 }
 
-function Wait-DockerInWsl([string]$Distro, [int]$Seconds = 60) {
-    $deadline = (Get-Date).AddSeconds($Seconds)
-    Write-Host -NoNewline "$Distro からDockerを確認しています"
-    while ((Get-Date) -lt $deadline) {
-        if (Test-Wsl $Distro 'timeout 10s docker version >/dev/null 2>&1 && timeout 10s docker compose version >/dev/null 2>&1') {
-            Write-Host ""
-            return $true
-        }
-        Start-Sleep -Seconds 3
-        Write-Host -NoNewline "."
-    }
-    Write-Host ""
-    return $false
+function Wait-DockerInWsl([string]$Distro, [int]$Seconds = 180) {
+    return (Wait-DockerDesktopEngine $Seconds $Distro)
 }
 
 function Install-DockerDesktop {
@@ -1014,6 +1080,31 @@ Enable-WindowsOptionalFeature -Online `
         Write-Warn "管理ツールは有効化され、Windows再起動後に利用可能になります。セットアップは続行できます。"
     }
     return $true
+}
+
+function Enter-SetupSession([string]$Name = "Local\NarrationVideoGen-setup") {
+    $mutex = New-Object System.Threading.Mutex($false, $Name)
+    try {
+        try { $acquired = $mutex.WaitOne(0) }
+        catch [System.Threading.AbandonedMutexException] { $acquired = $true }
+        if ($acquired) { return $mutex }
+        $mutex.Dispose()
+        return $null
+    } catch {
+        $mutex.Dispose()
+        throw
+    }
+}
+
+# Hold the lock across prompts too. A second agent shell must resume the owner.
+$setupSession = $null
+try {
+if (-not $Check) {
+    $setupSession = Enter-SetupSession
+    if ($null -eq $setupSession) {
+        Write-Ng "別のセットアップが実行中です。新しく起動せず、待機中の画面へ戻ってください。"
+        exit 1
+    }
 }
 
 Write-Host "Narration Video Gen - Windows + WSL2 セットアップ" -ForegroundColor White
@@ -1175,7 +1266,10 @@ if (-not $Check -and -not (Save-WslUiLanguage $Distribution $UiLanguage)) {
 
 if ($Purpose -eq "Video") {
     Write-Section "WSLリソース"
-    if (-not (Ensure-VideoWslResources $Distribution)) { $ready = $false }
+    if (-not (Ensure-VideoWslResources $Distribution)) {
+        if (-not $Check) { exit 1 }
+        $ready = $false
+    }
 }
 
 Write-Section "Docker Desktop"
@@ -1195,9 +1289,9 @@ if ($dockerDesktop) {
     Write-Ok "Docker Desktopを確認しました。"
     if ($script:RestartDockerAfterWslShutdown) {
         Write-Warn "WSLの再起動後にDocker Desktopを起動しています。"
-        if (-not (Restart-DockerDesktop $dockerDesktop 120)) { $ready = $false }
+        if (-not (Restart-DockerDesktop $dockerDesktop 120)) { exit 1 }
     }
-    if (-not (Get-Process -Name "Docker Desktop" -ErrorAction SilentlyContinue)) {
+    if (-not (Test-DockerDesktopRunning)) {
         Write-Warn "Docker Desktopが起動していません。"
         $startDocker = $dockerJustInstalled
         if (-not $Check -and -not $startDocker) {
@@ -1207,14 +1301,18 @@ if ($dockerDesktop) {
             Start-Process $dockerDesktop
             Write-Warn "Docker Desktopの画面が開きます。初回画面が出たら利用条件を確認し、案内に沿ってDashboardまで進んでください。"
             $null = Read-Host "Docker DesktopのDashboardが開いたら、この画面へ戻ってEnterを押します"
-            if (Wait-DockerDesktopEngine 30) {
-                Write-Ok "Dockerエンジンが起動しました。"
-            } else {
-                Write-Warn "Dockerエンジンの起動をまだ確認できません。Docker Desktop画面のエラーを確認してください。"
-            }
         }
     }
-    if (Test-Wsl $Distribution 'timeout 10s docker version >/dev/null 2>&1 && timeout 10s docker compose version >/dev/null 2>&1') {
+    if (-not $Check) {
+        if (-not (Test-DockerDesktopRunning) -or -not (Wait-DockerDesktopEngine 300)) {
+            Write-Ng "Docker Engineの継続応答を確認できないため、セットアップを停止します。"
+            Write-Warn "強制終了や再起動を繰り返さず、Docker Desktop画面とログを確認してください。"
+            Write-Warn "socket / .sock のremove・renameエラーは docs/troubleshooting.md を参照してください。"
+            exit 1
+        }
+    }
+    if (Test-DockerInWsl $Distribution) {
+        if (-not $Check -and -not (Wait-DockerInWsl $Distribution 180)) { exit 1 }
         Write-Ok "Docker DesktopのWSL統合を確認しました。"
     } else {
         Write-Ng "$Distribution からDockerを利用できません。"
@@ -1225,19 +1323,20 @@ if ($dockerDesktop) {
                 (Enable-DockerWslIntegration $Distribution)) {
                 & wsl.exe --terminate $Distribution *> $null
                 if (-not (Restart-DockerDesktop $dockerDesktop 120)) {
-                    $ready = $false
-                } elseif (Wait-DockerInWsl $Distribution 90) {
+                    exit 1
+                } elseif (Wait-DockerInWsl $Distribution 180) {
                     Write-Ok "Docker DesktopのWSL統合を確認しました。"
                 } else {
                     Write-Ng "WSL統合を確認できません。Docker Desktopの Settings > Resources > WSL Integration を確認してください。"
-                    $ready = $false
+                    exit 1
                 }
             } else {
                 Write-Warn "WSL統合の自動設定を行いませんでした。setup.cmdを再実行すると再確認します。"
-                $ready = $false
+                exit 1
             }
         } else {
             Write-Host "Docker Desktopの Settings > Resources > WSL Integration で $Distribution を有効にし、Apply & restartを押してください。"
+            if (-not $Check) { exit 1 }
             $ready = $false
         }
     }
@@ -1334,5 +1433,12 @@ if ($Purpose -eq "Tts") {
     Write-Host "動画の生成: wsl.exe -d $Distribution -- bash -lc 'cd ~/$RepositoryDirectory && ./bin/narration-video-gen run'"
     if (-not $Check) {
         Show-VideoMenu $Distribution $progressColumns
+    }
+}
+
+} finally {
+    if ($null -ne $setupSession) {
+        $setupSession.ReleaseMutex()
+        $setupSession.Dispose()
     }
 }

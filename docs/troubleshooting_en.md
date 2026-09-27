@@ -5,6 +5,106 @@
 When a generation fails, start with `./bin/narration-video-gen status`, which
 shows the cause and suggested fixes. The full log is `outputs/<run-id>/run.log`.
 
+## Windows Docker Desktop fails to remove / rename a socket
+
+### Prevention: agents must preserve the setup.cmd workflow
+
+The user reports successful manual `setup.cmd` runs and failures during agent
+operation. The exact triggering operation is not established. Keep the wizard's
+automatic WSL integration path; do not replace it with a separate agent workflow.
+
+- Run one setup session. Its lock remains held across prompts. An agent tool
+  returning a session ID or yielding on timeout does not mean the wizard exited.
+  Resume/poll that terminal; never run another setup, stop Docker, edit settings,
+  or stop WSL alongside it.
+- Dashboard confirms initial UI steps, not readiness. Setup checks a stable
+  backend PID/start time, Server response and Linux Engine info in the Windows
+  `desktop-linux` context for at least 60 seconds and three successful probes.
+  Initial readiness has a 300-second limit. WSL integration checks include
+  Docker and Compose in the target distro (180-second limit). Each client has
+  its own timeout; an in-flight probe can extend the overall deadline.
+- A lost response or replaced/exited backend fails the stability check. One
+  final success is insufficient. These are project criteria, not Docker's
+  guaranteed timings or proof of long-running/GPU stability.
+- The wizard owns approval, normal stop, full-stop verification, settings
+  backup/update, target WSL termination and startup. Do not extract its functions
+  or supplement them in another shell. If an interactive terminal cannot be
+  maintained, let the user run `setup.cmd`.
+
+### Recovery: preserve evidence and proceed in separate stages
+
+Use this procedure for `remove` / `rename` failures involving `sailor-ingest.sock`,
+`dockerInference` or `docker-secrets-engine\engine.sock` with `The file cannot be
+accessed by the system`. An unresponsive Engine alone is not enough to justify
+moving socket directories.
+
+1. **Read-only diagnosis.** Record operation times, Desktop version, process
+   PIDs/start times, `wsl -l -v`, `docker desktop status`, and Windows/target WSL
+   Docker responses. Bound each client externally. An unavailable container list
+   does not mean there are no containers. Preserve relevant host/VM logs under
+   `%LOCALAPPDATA%\Docker\log\host` and `log\vm`, socket/`.stale` existence,
+   timestamps/attributes, previous backups and operation history locally.
+   Distinguish new errors from old logs. Do not paste secrets. Diagnostic bundle
+   or log uploads require separate approval.
+2. **One normal stop attempt.** Explain the impact on other work and obtain
+   approval for GUI Quit or `docker desktop stop --timeout 45`. The stop client
+   can hang beyond its timeout; bound it externally too. Verify that Desktop,
+   backend and stop-request processes have exited, and `docker-desktop` WSL and
+   `com.docker.service` have stopped; repeat the check. A successful command alone
+   is insufficient. If stopped, one normal startup and sustained checks are possible.
+3. **If normal stop fails, end automatic recovery.** Processes can remain without
+   a GUI. Do not escalate automatically to `--force`, `Stop-Process`, `taskkill /F`
+   or `wsl --shutdown`. Report the blocker and suggest the user save work and
+   restart Windows. Afterwards check Docker auto-start and new logs first. If
+   healthy, leave runtime folders alone and verify sustained responses; do not
+   launch another instance. Reboot is not a guaranteed repair.
+4. **If the same socket error persists, consider a limited workaround.**
+   [Issue #554](https://github.com/docker/desktop-feedback/issues/554) reports
+   moving both parent directories aside while Desktop is fully stopped, then
+   starting it. This is a reporter's workaround, not an official Docker repair.
+   Require explicit approval and verified full stop for one attempt; if full stop
+   cannot be established, stop here.
+
+   | Target | Action |
+   |---|---|
+   | `%LOCALAPPDATA%\Docker\run` | Move to a unique backup name if present |
+   | `%LOCALAPPDATA%\docker-secrets-engine` | Move to a unique backup name if present; skip if absent |
+
+   **Do not start Docker until BOTH original locations have been checked and
+   cleared.** Check both even if logs name only one: the first startup failure
+   may hide the next. Keep existing backups; never overwrite/delete them.
+   Abort on a failed move or unexpected Docker startup. Do not target the entire
+   Docker directory, `wsl`, VHDX, settings, models, images, containers or volumes.
+   This is not a search-and-move operation on all sockets.
+5. **One startup, sustained verification.** After both locations are ready, start
+   once. Verify the same backend and Windows Linux Engine plus target WSL Docker /
+   Compose responses for at least 60 seconds and three probes. Inspect logs from
+   this startup for socket failures, backend crashes, PauseError and other startup
+   errors. Any recurrence ends the attempt: preserve evidence, do not repeatedly
+   move folders and restart. Generation is separate work. Before resuming setup,
+   verify that the old waiting setup session has ended.
+
+Before proposing an update, check release notes for the specific symptom; a
+new version does not guarantee repair. Before reinstall/reset, plan data
+preservation using [Docker's backup guide](https://docs.docker.com/desktop/settings-and-maintenance/backup-and-restore/).
+Factory Reset, Clean up data and deleting backups are outside automatic recovery.
+Official references: [stop CLI](https://docs.docker.com/reference/cli/docker/desktop/stop/),
+[diagnostics/logs](https://docs.docker.com/desktop/troubleshoot-and-support/troubleshoot/),
+[WSL integration](https://docs.docker.com/desktop/features/wsl/).
+
+### Evidence limits: user report dated 2026-09-27
+
+Desktop 4.91.0 (239619) failed on sockets after an initial Engine response.
+Moving `run`, starting, moving `docker-secrets-engine`, then starting again did
+not recover it. Normal stop exceeded its 45-second CLI timeout and eventually
+failed. After a Windows reboot Docker auto-started; three checks between
+17:21 and 17:23 JST confirmed Engine and Ubuntu Docker/Compose responses.
+The effects of prior moves and reboot were not isolated. Moving both folders
+before startup, long-running stability and GPU generation were not tested.
+The user also reports a separate older incident where reboot did not help but
+moving both directories did; that version is unknown. Neither case establishes
+a universal repair.
+
 ## The chosen configuration cannot run
 
 `plan` and `select` list the missing requirements and the configurations you

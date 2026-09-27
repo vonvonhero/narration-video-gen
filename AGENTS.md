@@ -81,6 +81,45 @@ after the user agrees: `--setup` (Docker and NVIDIA Container Toolkit),
 `--install-driver`, `--test-gpu`, each with `--yes`. For narration only, Docker
 is enough; no GPU setup is needed.
 
+### Windows Docker lifecycle (agent operations)
+
+* Keep one setup session. If it is waiting for Dashboard/Enter, resume that
+  session; do not start another wizard or change Docker/WSL in another shell.
+  A tool returning a session ID or yielding after its time limit does NOT mean
+  setup failed or exited. Poll/resume the same terminal. Never kill the wizard
+  because an agent tool timed out. Setup holds a lock across interactive prompts.
+  If you cannot maintain an interactive terminal, let the user run `setup.cmd`;
+  do not replace the wizard with your own sequence of host commands.
+* Dashboard visible does not mean the Engine is ready. Check the Windows
+  Engine first, then Docker inside the target WSL distro, then GPU support.
+  Use bounded probes; an Engine failure is not evidence of a GPU problem.
+* Use the wizard for host changes. Do not extract its functions to run them
+  out of order, edit `settings-store.json` while Desktop runs, or restart
+  Desktop independently while the wizard owns the operation.
+  Keep the existing wizard's automatic WSL integration path. It owns the
+  stop, settings backup/update, WSL termination and start sequence; do not
+  duplicate any of those operations. Wait for its stability checks to finish.
+* Never use `Stop-Process -Force`, `taskkill /F`, or kill Docker's backend as a
+  timeout remedy. Quit Desktop normally and wait for both `Docker Desktop`
+  and `com.docker.backend` to exit before a permitted WSL shutdown or settings
+  change. If they do not exit, stop and report the blocker.
+* An Engine startup timeout is a checkpoint, not permission to keep restarting,
+  terminate WSL, factory-reset Docker, or move/delete runtime directories.
+  Collect the relevant error and follow the Docker socket section in
+  `docs/troubleshooting_en.md`. Socket-directory recovery is a separate host
+  change requiring explicit user approval; it is not routine setup.
+* If normal Quit/stop cannot complete, preserve evidence and ask the user to
+  save work and restart Windows. On return, check for Docker auto-start before
+  doing anything else. If healthy, leave the runtime folders alone.
+* If the same confirmed socket error persists, follow the recovery procedure:
+  only after approval and verified full stop, move BOTH specified runtime
+  parent directories aside (skip an absent one), with NO start between moves.
+  Then attempt ONE startup and verify sustained responses. A new error or
+  failed move ends the attempt. Do not iterate folder-by-folder restarts.
+* Keep diagnostics local; uploads need explicit approval. Updates are not a
+  guaranteed fix: check release notes for the exact symptom. Reset, reinstall,
+  and data cleanup are outside automatic recovery.
+
 If sudo password prompts would stop you, the user can grant a time-limited
 window without them:
 

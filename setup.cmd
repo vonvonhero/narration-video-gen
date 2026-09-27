@@ -2,6 +2,7 @@
 setlocal
 set "NVG_PAUSE=1"
 for %%A in (%*) do if /I "%%~A"=="-Check" set "NVG_PAUSE=0"
+for %%A in (%*) do if /I "%%~A"=="-Agent" set "NVG_PAUSE=0"
 where powershell.exe >nul 2>&1
 if errorlevel 1 (
   echo PowerShell was not found on this Windows installation.

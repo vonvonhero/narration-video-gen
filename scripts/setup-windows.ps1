@@ -3,7 +3,8 @@ param(
     [ValidateSet("Tts", "Video")]
     [string]$Purpose,
     [string]$Distribution,
-    [switch]$Check
+    [switch]$Check,
+    [switch]$Agent
 )
 
 $ErrorActionPreference = "Stop"
@@ -74,12 +75,22 @@ function Write-DesktopShortcut {
     $shortcut = $shell.CreateShortcut($DesktopShortcutPath)
     $shortcut.TargetPath = $InstalledLauncherPath
     $shortcut.WorkingDirectory = $SetupStateDirectory
+    if ($Agent) {
+        # The user must launch outside the agent's AppData virtualization context.
+        $shortcut.TargetPath = $SourceLauncherPath
+        $shortcut.WorkingDirectory = Split-Path -Parent $SourceLauncherPath
+    }
     $shortcut.Description = "動画・音声作成を開始します"
     $shortcut.Save()
 }
 
 function Install-DesktopShortcut {
     try {
+        if ($Agent) {
+            Write-DesktopShortcut
+            Write-Ok "デスクトップショートカット: Narration Video Gen"
+            return $true
+        }
         $installedScriptDirectory = Split-Path -Parent $InstalledSetupScriptPath
         $null = New-Item -ItemType Directory -Path $installedScriptDirectory -Force
 
@@ -117,6 +128,18 @@ function Ensure-DesktopShortcut {
     if (Confirm-ActionDefaultYes "デスクトップに「Narration Video Gen」のショートカットを作成しますか？") {
         $null = Install-DesktopShortcut
     }
+}
+
+function Show-UserWslIntegrationHandoff {
+    Write-Warn "ここからのDocker起動・再起動とWSL連携は、ユーザー自身で実行してください。"
+    $shortcutReady = Install-DesktopShortcut
+    if ($shortcutReady) {
+        Write-Host "デスクトップの「Narration Video Gen」をダブルクリックしてください。"
+    } else {
+        Write-Host "ダウンロードしたフォルダのsetup.cmdを、エクスプローラーからダブルクリックしてください。"
+    }
+    Write-Host "エージェントはショートカットの起動や、WSL連携への回答入力を代行しないでください。"
+    Write-Host "完了したら、エージェントは setup.cmd -Check で状態を確認できます。"
 }
 
 function Reset-TtsWebUiPassword([string]$Distro) {
@@ -840,16 +863,6 @@ function Test-DockerDesktopEngine {
     return (Invoke-SetupProbe $docker "--context desktop-linux info --format {{.OSType}}" "linux")
 }
 
-function Get-DockerBackendIdentity {
-    try {
-        $processes = @(Get-Process -Name "com.docker.backend" -ErrorAction SilentlyContinue)
-        if (-not $processes.Count) { return "" }
-        return (($processes | Sort-Object Id | ForEach-Object {
-            "{0}:{1}" -f $_.Id, $_.StartTime.ToUniversalTime().Ticks
-        }) -join ",")
-    } catch { return "" }
-}
-
 function Test-DockerInWsl([string]$Distro) {
     # Bound wsl.exe itself as well as commands inside WSL (WSL can hang before exec).
     # wsl.exe treats quotes around the distro name literally with ProcessStartInfo.Arguments.
@@ -878,6 +891,10 @@ function Wait-DockerDesktopStopped([int]$Seconds = 60) {
 
 function Stop-DockerDesktopForWslShutdown {
     if (-not (Test-DockerDesktopRunning)) { return (Wait-DockerDesktopStopped) }
+    if ($Agent) {
+        Show-UserWslIntegrationHandoff
+        return $false
+    }
 
     $control = Get-DockerDesktopControlExecutable
     if (-not $control) {
@@ -908,6 +925,10 @@ function Stop-DockerDesktopForWslShutdown {
 }
 
 function Enable-DockerWslIntegration([string]$Distro) {
+    if ($Agent) {
+        Show-UserWslIntegrationHandoff
+        return $false
+    }
     if (-not (Wait-DockerDesktopStopped)) {
         Write-Ng "Docker Desktopが停止していないため、WSL統合設定を変更しません。"
         return $false
@@ -944,19 +965,23 @@ function Enable-DockerWslIntegration([string]$Distro) {
 
 function Restart-DockerDesktop([string]$Executable, [int]$Seconds = 120,
                                [string]$Distro = "") {
+    if ($Agent) {
+        Show-UserWslIntegrationHandoff
+        return $false
+    }
     # Consume the pending start even on timeout; do not launch a second instance.
     $script:RestartDockerAfterWslShutdown = $false
     if (-not (Test-DockerDesktopRunning)) { Start-Process $Executable }
     if (Wait-DockerDesktopEngine $Seconds $Distro) {
         if ($Distro) {
-            Write-Ok "Dockerエンジンが再起動し、$Distro からの継続応答を確認しました。"
+            Write-Ok "Dockerエンジンが再起動し、$Distro からの応答を確認しました。"
         } else {
             Write-Ok "Dockerエンジンが再起動しました。"
         }
         return $true
     }
     if ($Distro) {
-        Write-Ng "Dockerエンジンまたは $Distro からの継続応答を確認できませんでした。強制終了や再起動を繰り返さず、Docker Desktop画面とログを確認してください。"
+        Write-Ng "Dockerエンジンまたは $Distro からの応答を確認できませんでした。Docker Desktop画面とログを確認してください。"
     } else {
         Write-Ng "Dockerエンジンの起動がタイムアウトしました。強制終了や再起動を繰り返さず、Docker Desktop画面とログを確認してください。"
     }
@@ -964,45 +989,29 @@ function Restart-DockerDesktop([string]$Executable, [int]$Seconds = 120,
     return $false
 }
 
-function Wait-DockerDesktopEngine([int]$Seconds = 300, [string]$Distro = "",
-                                  [int]$StableSeconds = 60) {
+function Wait-DockerDesktopEngine([int]$Seconds = 120, [string]$Distro = "") {
     $deadline = (Get-Date).AddSeconds($Seconds)
-    $identity = ""
-    $stableSince = $null
-    $successes = 0
-    $minimum = if ($StableSeconds) { "${StableSeconds}秒以上・3回以上" } else { "3回以上" }
-    Write-Host "Dockerの継続応答を確認します（$minimum、上限${Seconds}秒）。"
+    Write-Host "Dockerの起動を待っています。応答したら先へ進みます。"
     while ((Get-Date) -lt $deadline) {
-        $current = Get-DockerBackendIdentity
-        if ($identity -and $current -ne $identity) {
-            Write-Ng "Dockerバックエンドが終了または交代しました。セットアップを停止します。"
-            return $false
-        }
-        if ($current) { $identity = $current }
-        $healthy = $current -and (Test-DockerDesktopEngine)
+        $healthy = Test-DockerDesktopEngine
         if ($healthy -and $Distro) { $healthy = Test-DockerInWsl $Distro }
-        # The backend can exit/restart during a probe; check again before accepting it.
-        if ($current -and (Get-DockerBackendIdentity) -ne $current) {
-            Write-Ng "確認中にDockerバックエンドが終了または交代しました。"
-            return $false
-        }
-        if ($healthy) {
-            if ($null -eq $stableSince) { $stableSince = Get-Date }
-            $successes++
-            if ((Get-Date) -lt $deadline -and $successes -ge 3 -and
-                ((Get-Date) - $stableSince).TotalSeconds -ge $StableSeconds) { return $true }
-        } elseif ($null -ne $stableSince) {
-            Write-Ng "Dockerの応答が途切れました。再起動せずログを確認してください。"
-            return $false
-        }
+        if ($healthy) { return $true }
         Start-Sleep -Seconds 5
     }
-    Write-Ng "Dockerの継続応答を制限時間内に確認できませんでした。"
+    Write-Ng "Dockerの起動を確認できませんでした。Docker Desktop画面を確認してください。"
     return $false
 }
 
-function Wait-DockerInWsl([string]$Distro, [int]$Seconds = 180) {
-    return (Wait-DockerDesktopEngine $Seconds $Distro)
+function Test-AgentSetupHandoff([string]$Distro) {
+    if (-not $Agent -or $Check) { return $false }
+    if ($script:RestartDockerAfterWslShutdown -or
+            -not (Test-DockerDesktopRunning) -or
+            -not (Test-DockerDesktopEngine) -or
+            -not (Test-DockerInWsl $Distro)) {
+        Show-UserWslIntegrationHandoff
+        return $true
+    }
+    return $false
 }
 
 function Install-DockerDesktop {
@@ -1300,6 +1309,7 @@ if (-not $dockerDesktop) {
 }
 if ($dockerDesktop) {
     Write-Ok "Docker Desktopを確認しました。"
+    if (Test-AgentSetupHandoff $Distribution) { exit 2 }
     if ($script:RestartDockerAfterWslShutdown) {
         Write-Warn "WSLの再起動後にDocker Desktopを起動しています。"
         if (-not (Restart-DockerDesktop $dockerDesktop 120)) { exit 1 }
@@ -1317,26 +1327,28 @@ if ($dockerDesktop) {
         }
     }
     if (-not $Check) {
-        # A longer stability check follows for the selected WSL distro or the restart below.
-        if (-not (Test-DockerDesktopRunning) -or -not (Wait-DockerDesktopEngine 300 "" 0)) {
-            Write-Ng "Docker Engineの継続応答を確認できないため、セットアップを停止します。"
+        if (-not (Test-DockerDesktopRunning) -or -not (Wait-DockerDesktopEngine)) {
+            Write-Ng "Docker Engineの応答を確認できないため、セットアップを停止します。"
             Write-Warn "強制終了や再起動を繰り返さず、Docker Desktop画面とログを確認してください。"
             Write-Warn "socket / .sock のremove・renameエラーは docs/troubleshooting.md を参照してください。"
             exit 1
         }
     }
     if (Test-DockerInWsl $Distribution) {
-        if (-not $Check -and -not (Wait-DockerInWsl $Distribution 180)) { exit 1 }
         Write-Ok "Docker DesktopのWSL統合を確認しました。"
     } else {
         Write-Ng "$Distribution からDockerを利用できません。"
+        if ($Agent -and -not $Check) {
+            Show-UserWslIntegrationHandoff
+            exit 2
+        }
         if (-not $Check -and (Test-DockerDesktopEngine)) {
             Write-Host "Docker Desktopの設定をバックアップし、$Distribution のWSL統合を有効にできます。"
             if ((Confirm-Action "WSL統合を有効にしてDocker Desktopを再起動しますか？") -and
                 (Stop-DockerDesktopForWslShutdown) -and
                 (Enable-DockerWslIntegration $Distribution)) {
                 & wsl.exe --terminate $Distribution *> $null
-                if (-not (Restart-DockerDesktop $dockerDesktop 180 $Distribution)) {
+                if (-not (Restart-DockerDesktop $dockerDesktop -Distro $Distribution)) {
                     Write-Ng "WSL統合を確認できません。Docker Desktopの Settings > Resources > WSL Integration を確認してください。"
                     exit 1
                 }

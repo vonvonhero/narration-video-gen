@@ -81,44 +81,42 @@ after the user agrees: `--setup` (Docker and NVIDIA Container Toolkit),
 `--install-driver`, `--test-gpu`, each with `--yes`. For narration only, Docker
 is enough; no GPU setup is needed.
 
-### Windows Docker lifecycle (agent operations)
+### Windows setup: hand WSL integration to the user
 
-* Keep one setup session. If it is waiting for Dashboard/Enter, resume that
-  session; do not start another wizard or change Docker/WSL in another shell.
-  A tool returning a session ID or yielding after its time limit does NOT mean
-  setup failed or exited. Poll/resume the same terminal. Never kill the wizard
-  because an agent tool timed out. Setup holds a lock across interactive prompts.
-  If you cannot maintain an interactive terminal, let the user run `setup.cmd`;
-  do not replace the wizard with your own sequence of host commands.
-* Dashboard visible does not mean the Engine is ready. Check the Windows
-  Engine first, then Docker inside the target WSL distro, then GPU support.
-  Use bounded probes; an Engine failure is not evidence of a GPU problem.
-* Use the wizard for host changes. Do not extract its functions to run them
-  out of order, edit `settings-store.json` while Desktop runs, or restart
-  Desktop independently while the wizard owns the operation.
-  Keep the existing wizard's automatic WSL integration path. It owns the
-  stop, settings backup/update, WSL termination and start sequence; do not
-  duplicate any of those operations. Wait for its stability checks to finish.
-* Never use `Stop-Process -Force`, `taskkill /F`, or kill Docker's backend as a
-  timeout remedy. Quit Desktop normally and wait for both `Docker Desktop`
-  and `com.docker.backend` to exit before a permitted WSL shutdown or settings
-  change. If they do not exit, stop and report the blocker.
-* An Engine startup timeout is a checkpoint, not permission to keep restarting,
-  terminate WSL, factory-reset Docker, or move/delete runtime directories.
-  Collect the relevant error and follow the Docker socket section in
-  `docs/troubleshooting_en.md`. Socket-directory recovery is a separate host
-  change requiring explicit user approval; it is not routine setup.
-* If normal Quit/stop cannot complete, preserve evidence and ask the user to
-  save work and restart Windows. On return, check for Docker auto-start before
-  doing anything else. If healthy, leave the runtime folders alone.
-* If the same confirmed socket error persists, follow the recovery procedure:
-  only after approval and verified full stop, move BOTH specified runtime
-  parent directories aside (skip an absent one), with NO start between moves.
-  Then attempt ONE startup and verify sustained responses. A new error or
-  failed move ends the attempt. Do not iterate folder-by-folder restarts.
-* Keep diagnostics local; uploads need explicit approval. Updates are not a
-  guaranteed fix: check release notes for the exact symptom. Reset, reinstall,
-  and data cleanup are outside automatic recovery.
+* Agents may prepare Windows, Ubuntu/WSL2 and install Docker Desktop, with the
+  host-change approvals above. Every agent-run setup must use `setup.cmd -Agent`
+  (add `-Purpose Video` or `-Purpose Tts` as needed). Read-only checks use
+  `setup.cmd -Check`.
+* **Do not perform Docker Desktop's WSL integration from an agent session.**
+  Do not enable it in the GUI, edit `IntegratedWslDistros`, answer its wizard
+  prompt, or call the integration helpers separately. Do not omit `-Agent`
+  to continue past the handoff.
+* At the handoff, tell the user: **Double-click "Narration Video Gen" on your
+  desktop.** The user must launch the shortcut themselves and finish the
+  wizard. Do not launch the shortcut, Explorer, another shell or the installed
+  launcher on their behalf. If creating the shortcut failed, ask the user to
+  double-click `setup.cmd` in the downloaded folder instead.
+* `-Agent` stops with exit code 2 before Docker Desktop startup/restart or WSL
+  integration. It also stops if an earlier resource change requires stopping
+  a running Docker Desktop. Complete that step through the same user handoff.
+  The shortcut points to the downloaded launcher during agent preparation;
+  the user-run wizard installs its persistent copy normally.
+* After the user finishes, run `setup.cmd -Check`. If Windows and Ubuntu can
+  use Docker, continue with preparation/generation inside WSL. Already working
+  integration does not require another manual setup.
+* Keep one setup session; resume the same terminal across interactive prompts.
+  A tool timeout does not mean setup exited. End the agent setup before the
+  user opens the shortcut. Never force-kill Docker or stop WSL as a timeout fix.
+* The user-run wizard checks Windows Engine readiness and Docker/Compose in
+  Ubuntu. Startup waits end on the first successful response; there is no
+  repeated stability window. Each client probe still has a timeout.
+* If a socket remove/rename fails, preserve the relevant log locally and follow
+  `docs/troubleshooting_en.md`. Do not move/delete socket directories, reset or
+  reinstall Docker as automatic recovery. Uploads require explicit approval.
+
+This boundary avoids Windows MSIX AppData virtualization inherited by agent
+commands: an agent can see different runtime files at the same apparent path.
+Job membership or a missing package identity is not a reliable safety check.
 
 If sudo password prompts would stop you, the user can grant a time-limited
 window without them:

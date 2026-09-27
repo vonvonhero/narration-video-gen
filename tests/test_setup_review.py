@@ -203,32 +203,69 @@ try {
     }
     Assert (-not (Invoke-SetupProbe $pwsh "-NoProfile -EncodedCommand $encoded")) "Setup lock was not released"
 
-    # Virtual time: readiness must remain true; a last-minute success is insufficient.
+    # Agent preparation must hand off before any Docker lifecycle/settings mutation.
+    $Agent = $true
+    $Check = $false
+    $script:RestartDockerAfterWslShutdown = $false
+    $script:handoffs = 0
+    function Show-UserWslIntegrationHandoff { $script:handoffs++ }
+    function Test-DockerDesktopRunning { return $script:dockerRunning }
+    function Test-DockerDesktopEngine { return $script:engineReady }
+    function Test-DockerInWsl { param($Distro) return $script:integrationReady }
+    function Start-Process { throw "Agent must not launch or stop Docker" }
+    function Wait-DockerDesktopStopped { throw "Agent must hand off before stopping Docker" }
+    $DockerSettingsPath = Join-Path $root "agent-settings.json"
+    Set-Content $DockerSettingsPath '{"IntegratedWslDistros":[],"unrelated":42}'
+    $settingsBefore = Get-Content $DockerSettingsPath -Raw
+    foreach ($state in @(@($false,$false,$false), @($true,$false,$false), @($true,$true,$false))) {
+        $script:dockerRunning, $script:engineReady, $script:integrationReady = $state
+        Assert (Test-AgentSetupHandoff "Ubuntu") "Incomplete agent setup did not hand off"
+    }
+    $script:dockerRunning = $script:engineReady = $script:integrationReady = $true
+    Assert (-not (Test-AgentSetupHandoff "Ubuntu")) "Working integration unnecessarily blocked agent work"
+    $script:RestartDockerAfterWslShutdown = $true
+    Assert (Test-AgentSetupHandoff "Ubuntu") "Agent accepted a pending restart"
+    Assert (-not (Enable-DockerWslIntegration "Ubuntu")) "Agent changed integration"
+    Assert (-not (Stop-DockerDesktopForWslShutdown)) "Agent stopped Docker"
+    Assert (-not (Restart-DockerDesktop "unused")) "Agent restarted Docker"
+    Assert ((Get-Content $DockerSettingsPath -Raw) -eq $settingsBefore) "Agent modified Docker settings"
+    Assert ($script:handoffs -eq 7) "Expected handoffs were not shown"
+    $Check = $true
+    Assert (-not (Test-AgentSetupHandoff "Ubuntu")) "Read-only check performed a handoff"
+    Assert ($script:handoffs -eq 7) "Read-only check created a shortcut"
+    $Check = $false
+    $Agent = $false
+    $script:RestartDockerAfterWslShutdown = $false
+    Assert (-not (Test-AgentSetupHandoff "Ubuntu")) "User setup was blocked"
+    Remove-Item Function:Start-Process
+    foreach ($definition in $functions | Where-Object Name -in @("Show-UserWslIntegrationHandoff", "Test-DockerDesktopRunning", "Wait-DockerDesktopStopped")) {
+        Invoke-Expression $definition.Extent.Text
+    }
+
+    # Startup waiting accepts the first response and still times out if unavailable.
     function Get-Date { return $script:now }
-    function Start-Sleep { param($Seconds) $script:now = $script:now.AddSeconds(30) }
-    function Get-DockerBackendIdentity { return $script:identities.Dequeue() }
+    function Start-Sleep { param($Seconds) $script:now = $script:now.AddSeconds($Seconds) }
     function Test-DockerDesktopEngine { return $script:health.Dequeue() }
-    function Test-DockerInWsl { param($Distro) return $script:wslHealthy }
+    function Test-DockerInWsl { param($Distro) return $script:wslHealth.Dequeue() }
     foreach ($case in @(
-        @{ Name = "stable"; Health = @($true,$true,$true); Ids = @("a","a","a","a","a","a"); Expected = $true; Limit = 180 },
-        @{ Name = "delayed startup"; Health = @($false,$true,$true,$true); Ids = @("a","a","a","a","a","a","a","a"); Expected = $true; Limit = 180 },
-        @{ Name = "lost response"; Health = @($true,$false); Ids = @("a","a","a","a"); Expected = $false; Limit = 180 },
-        @{ Name = "backend replaced"; Health = @($true); Ids = @("a","a","b"); Expected = $false; Limit = 180 },
-        @{ Name = "backend exited during probe"; Health = @($true); Ids = @("a",""); Expected = $false; Limit = 180 },
-        @{ Name = "only final success"; Health = @($false,$false,$true); Ids = @("a","a","a","a","a","a"); Expected = $false; Limit = 90 },
-        @{ Name = "WSL unavailable"; Health = @($true,$true,$true); Ids = @("a","a","a","a","a","a"); Expected = $false; Limit = 90; Wsl = $true }
+        @{ Name = "already ready"; Health = @($true); Expected = $true; Elapsed = 0 },
+        @{ Name = "delayed startup"; Health = @($false,$true); Expected = $true; Elapsed = 5 },
+        @{ Name = "engine unavailable"; Health = @($false,$false); Expected = $false; Elapsed = 10 },
+        @{ Name = "WSL unavailable"; Health = @($true,$true); Wsl = @($false,$false); Expected = $false; Elapsed = 10 },
+        @{ Name = "WSL becomes ready"; Health = @($true,$true); Wsl = @($false,$true); Expected = $true; Elapsed = 5 }
     )) {
         $script:now = [datetime]"2026-01-01T00:00:00Z"
+        $started = $script:now
         $script:health = [Collections.Generic.Queue[bool]]::new()
         foreach ($value in $case.Health) { $script:health.Enqueue($value) }
-        $script:identities = [Collections.Generic.Queue[string]]::new()
-        foreach ($value in $case.Ids) { $script:identities.Enqueue($value) }
-        $script:wslHealthy = $false
+        $script:wslHealth = [Collections.Generic.Queue[bool]]::new()
+        foreach ($value in $case.Wsl) { $script:wslHealth.Enqueue($value) }
         $distro = if ($case.Wsl) { "Ubuntu" } else { "" }
-        Assert ((Wait-DockerDesktopEngine $case.Limit $distro) -eq $case.Expected) "Readiness failed: $($case.Name)"
+        Assert ((Wait-DockerDesktopEngine 10 $distro) -eq $case.Expected) "Readiness failed: $($case.Name)"
+        Assert (($script:now - $started).TotalSeconds -eq $case.Elapsed) "Unnecessary wait: $($case.Name)"
     }
     Remove-Item Function:Get-Date, Function:Start-Sleep
-    foreach ($definition in $functions | Where-Object Name -in @("Get-DockerBackendIdentity", "Test-DockerDesktopEngine", "Test-DockerInWsl")) {
+    foreach ($definition in $functions | Where-Object Name -in @("Test-DockerDesktopEngine", "Test-DockerInWsl")) {
         Invoke-Expression $definition.Extent.Text
     }
 

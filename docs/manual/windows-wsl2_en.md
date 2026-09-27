@@ -22,6 +22,11 @@ When you see a prompt such as `user@computer:~$`, type `exit` and press Enter.
 When Docker Desktop opens for the first time, review its terms and continue to the Dashboard. Return to the setup window and press Enter.
 The wizard can enable WSL integration if needed.
 
+An AI agent must use `setup.cmd -Agent`, which prepares the machine and stops
+before integration. When prompted, double-click **Narration Video Gen** on the
+desktop yourself to continue. Do not have the agent launch it or operate WSL
+integration. Afterwards, the agent can run `setup.cmd -Check` and resume work.
+
 Initial video setup gives WSL 20 GiB of memory and 32 GiB of swap (larger existing values are kept). When you select 720p on the preparation screen, the wizard shows the current swap and the 48 GiB requirement, then asks before increasing it. If accepted, it backs up and updates `.wslconfig` and resumes preparation for the selected 720p profile. Applying the setting stops all WSL distributions and Docker containers, so save your work before continuing.
 
 Before Ubuntu and WSL2 are installed, the wizard offers to create a desktop shortcut. If prompted to restart, open **Narration Video Gen** on the desktop to continue.

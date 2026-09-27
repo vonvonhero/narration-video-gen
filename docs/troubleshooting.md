@@ -5,95 +5,50 @@
 失敗した生成は、まず`./bin/narration-video-gen status`で原因と対処を確認してください。
 詳しいログは`outputs/<実行ID>/run.log`にあります。
 
-## WindowsでDocker Desktopが起動しない（socketのremove / rename）
-
-### 予防：エージェントもsetup.cmdの順序を守る
-
-手動での`setup.cmd`では発生せず、エージェント操作時に発生したという利用者の観測が
-あります。ただし、最初の障害を起こした操作は確定していません。正常に使えている
-ウィザードの自動WSL連携は維持し、エージェントが別の操作列に置き換えないようにします。
-
-- セットアップは1セッションだけで進めます。入力待ちもロックの対象です。
-  エージェントのツールが実行セッションIDを返したり時間切れで制御を返したりしても、
-  元の処理は続いている場合があります。同じ端末を再開・監視し、別のセットアップや
-  Docker終了・設定変更・WSL停止を並行して実行しません。
-- Dashboardは初回操作の完了確認です。ウィザードは同じバックエンドのPID・起動時刻と、
-  Windows側の`desktop-linux`コンテキストのServer応答・Linux Engine情報を
-  60秒以上・3回以上確認してからWSL連携へ進みます。初回確認の上限は300秒です。
-  連携後は対象UbuntuのDocker / Composeも含めて確認します（上限180秒）。
-  CLIには個別の時間制限もあり、全体の上限には実行中のプローブの時間が加わる場合があります。
-- 継続確認中の応答消失やバックエンドの終了・交代は成功扱いにしません。
-  最後の1回だけ応答しても進めません。確認時間は本プロジェクトの基準であり、
-  Docker公式の保証値や長時間/GPU稼働の保証ではありません。
-- 連携設定が必要ならウィザードが承認、通常終了、完全停止確認、設定のバックアップ・変更、
-  対象WSLの終了、Docker起動を順に担当します。エージェントは各関数を抜き出して実行したり、
-  同じ操作を別シェルで補ったりしません。対話端末を維持できない場合はユーザーに
-  `setup.cmd`の実行を任せます。
-
-### 起動失敗時：証拠を残してから、段階を分けて復旧する
+## エージェント操作後にWindowsのDocker Desktopが起動しない
 
 `sailor-ingest.sock`、`dockerInference`、`docker-secrets-engine\engine.sock` の
-`remove` / `rename` が `The file cannot be accessed by the system` で失敗する場合に
-次を使います。単なるEngine未応答だけで、ソケットの退避へ進まないでください。
+`remove` / `rename` が `The file cannot be accessed by the system`（エラー1920）で
+失敗する場合は、まず起動元を確認してください。
 
-1. **読み取り専用診断。** 操作時刻、Dockerバージョン、プロセスのPID・起動時刻、
-   `wsl -l -v`、`docker desktop status`、Windowsと対象UbuntuのDocker応答を記録します。
-   各CLIには外側のタイムアウトも設けます。失敗は「コンテナなし」を意味しません。
-   `%LOCALAPPDATA%\Docker\log\host`と`log\vm`の関連ログ、対象ソケットと`.stale`の
-   有無・時刻・属性、既存退避先、直前の操作履歴をローカルに保存します。
-   新しいログと過去のエラーを区別し、秘密情報をチャットへ貼りません。
-   診断バンドルやログのアップロードは別途承認が必要です。
-2. **通常終了を1回。** 他の作業への影響を伝えて承認を得てから、GUIのQuit、または
-   `docker desktop stop --timeout 45`による通常終了を試します。終了要求自体が固まる
-   場合があるため、CLIのオプションだけを時間制限として信用しません。
-   コマンド終了だけで成功とせず、Docker Desktop、backend、終了要求プロセスが消え、
-   `docker-desktop` WSLと`com.docker.service`が停止したことを再確認します。
-   停止できた場合は通常起動を1回試し、後述の継続確認を行えます。
-3. **終了不能なら自動操作を停止。** GUIがなくてもプロセスが残る場合があります。
-   `--force`、`Stop-Process`、`taskkill /F`、`wsl --shutdown`へ自動で切り替えません。
-   状況を報告し、作業を保存したうえでのWindows再起動をユーザーに提案します。
-   再起動後はDockerの自動起動と新しいログを先に確認します。健康なら追加起動や
-   退避はせず、その状態を継続確認します。再起動だけで直る保証はありません。
-4. **同じソケットエラーが続く場合の限定的な回避策。**
-   [公開イシュー #554](https://github.com/docker/desktop-feedback/issues/554)の投稿者は、
-   完全停止後、次の2つの親ディレクトリを退避してから起動する方法を報告しています。
-   Docker公式の復旧手順ではありません。明示的な承認を得て、完全停止を確認できた場合だけ
-   1回試す候補です。停止できなければ、ここで止めます。
+MSIX版Codexからのコマンドは、WindowsのAppData仮想化を継承することがあります。
+同じ見かけのパスでも、通常のターミナルとは異なるアプリ専用ファイルが見えます。
+この実行環境ではWindows AF_UNIXソケットの接続・rename・削除が失敗します。
+2026-09-28の調査では、Dockerを使わない新規AppDataフォルダでも再現し、
+ユーザーのPowerShellでは同じ処理が成功しました。通常のJob所属でも成功するため、
+Job所属だけを原因や回避判定に使いません。ReparsePoint属性やエラー1920だけで
+ソケットの破損とも判断できません。
 
-   | 対象 | 操作 |
-   |---|---|
-   | `%LOCALAPPDATA%\Docker\run` | 存在すれば固有名へ退避 |
-   | `%LOCALAPPDATA%\docker-secrets-engine` | 存在すれば固有名へ退避。なければ何もしない |
+### セットアップの分担
 
-   **両方の元の場所を確認・退避し終えるまでDockerを起動しません。**
-   片方のエラーしか出ていなくても、両方を確認します。最初の失敗で次のエラーが
-   隠れている可能性があるためです。既存の退避先は保持し、上書き・削除しません。
-   移動失敗やDockerの予期しない起動を検出したら中止します。
-   `Docker`全体、`wsl`、VHDX、設定ファイル、モデル・イメージ・コンテナ・ボリュームは
-   対象外です。全ソケットを検索して無差別に移動する手順ではありません。
-5. **起動は1回、判定は継続応答。** 退避完了後に一度だけ起動し、同じバックエンド、
-   WindowsのLinux Engine、対象UbuntuのDocker / Composeが60秒以上・3回以上応答することと、
-   起動時刻以降のログに同じソケットエラー、backend crash、PauseError等がないことを確認します。
-   別のエラーでも、再発したら証拠を保存して停止します。追加退避・再起動を繰り返しません。
-   成功後も生成は別の作業です。新しいセットアップは、待機中の古いセッションが終了したことを
-   確認してから再開します。
+エージェントは `setup.cmd -Agent` でWSL連携の手前まで準備できます。
+Docker Desktopの起動・再起動やWSL連携が必要になったら、案内を表示して停止します。
+**ユーザー自身がデスクトップの「Narration Video Gen」をダブルクリックして、
+ウィザードの続きを実行してください。** エージェントにショートカットの起動や
+連携確認への回答を代行させないでください。ショートカットを作れなかった場合は、
+ダウンロードしたフォルダの `setup.cmd` をユーザー自身でダブルクリックします。
 
-更新は対象症状の修正根拠を確認して提案します。新しいバージョンなら直るとは断定しません。
-再インストールやリセットが必要なら、先に[公式バックアップ手順](https://docs.docker.com/desktop/settings-and-maintenance/backup-and-restore/)
-に沿ってデータ保全を計画します。Factory Reset、Clean up data、退避先の削除は自動復旧の対象外です。
-公式情報：[停止CLI](https://docs.docker.com/reference/cli/docker/desktop/stop/)、
-[診断・ログ](https://docs.docker.com/desktop/troubleshoot-and-support/troubleshoot/)、
-[WSL連携](https://docs.docker.com/desktop/features/wsl/)。
+手動ウィザード内のWSL連携は自動で進みます。Dockerの起動待ちは最初の応答で終了し、
+3回成功や60秒の安定監視は行いません。完了後、エージェントは `setup.cmd -Check` で
+WindowsとUbuntuからのDocker利用を確認し、WSL内の作業を再開できます。
 
-### 確認済みの範囲（2026-09-27の利用者レポート）
+### すでに起動エラーが出ている場合
 
-Docker Desktop 4.91.0 (239619)で、初回Engine応答後にソケットエラーが発生しました。
-その後、`run`退避→起動→`docker-secrets-engine`退避→起動の順で再発しました。
-通常終了はCLIの45秒指定を超えて待機し、最終的に失敗しました。Windows再起動後は
-自動起動し、17:21〜17:23 JSTの3回の確認でEngineとUbuntuのDocker / Composeが応答しました。
-先行する退避と再起動の効果は切り分けられていません。一括退避・長時間稼働・GPU生成は未検証です。
-利用者からは、別の過去の事例で再起動では直らず、一括退避で復旧したとの報告もありますが、
-そのバージョンは未確認です。いずれも万能な復旧方法の証明ではありません。
+1. エージェントからの起動・再起動を止め、セットアップを終了します。
+2. 関連する最新ログを `%LOCALAPPDATA%\Docker\log\host` からローカルに保存します。
+   ログの外部送信はユーザーの承認を得てから行います。
+3. ユーザー自身がDocker Desktopを通常終了し、デスクトップの
+   **Narration Video Gen** から再開します。通常終了できない場合は作業を保存し、
+   Windowsを再起動してから同じショートカットを開きます。
+4. 完了後は `setup.cmd -Check` で確認します。手動起動でも失敗する場合は、
+   その起動時刻以降のログで原因を調べます。エージェントは再起動を繰り返しません。
+
+ソケットやruntimeフォルダの削除・退避、Factory Reset、再インストールは、
+この実行環境の問題への自動対策にはしません。
+
+参考：[MicrosoftのAppData仮想化](https://learn.microsoft.com/en-us/windows/msix/desktop/desktop-to-uwp-behind-the-scenes)、
+[仮想化設定の優先順位](https://learn.microsoft.com/en-us/windows/msix/desktop/flexible-virtualization)、
+[Dockerの診断・ログ](https://docs.docker.com/desktop/troubleshoot-and-support/troubleshoot/)。
 
 ## 選んだ構成を実行できない
 

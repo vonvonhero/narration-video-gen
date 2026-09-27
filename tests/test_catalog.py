@@ -1531,13 +1531,13 @@ def test_windows_setup_is_guided_and_safe():
           and "Get-DockerDesktopExecutable" in text
           and "Docker DesktopのDashboardが開いたら" in text
           and "Enable-DockerWslIntegration" in text
-          and "Wait-DockerInWsl" in text,
+          and "Test-AgentSetupHandoff" in text,
           "Docker Desktop launch and WSL integration have explicit setup handoffs")
     check("Stop-DockerDesktopForWslShutdown" in text
           and 'Start-Process $control -ArgumentList "-Shutdown"' in text
           and "$script:RestartDockerAfterWslShutdown = $true" in text
           and "WaitForExit(30000)" in text
-          and "Wait-DockerDesktopEngine 30" in text,
+          and "Wait-DockerDesktopEngine" in text,
           "WSL resource changes safely restart Docker and bound engine probes")
     check("NVIDIAドライバーを確認できません" in text
           and "nvidia.com/Download" in text
